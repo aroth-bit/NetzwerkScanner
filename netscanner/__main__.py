@@ -8,7 +8,7 @@ import threading
 import time
 import webbrowser
 
-from . import __version__
+from . import __version__, DEFAULT_PORT
 
 
 def main(argv=None):
@@ -16,8 +16,8 @@ def main(argv=None):
                                  __version__)
     ap.add_argument("--host", default=os.environ.get("NETSCANNER_HOST", "0.0.0.0"),
                     help="Bind-Adresse des Web-Servers (Standard 0.0.0.0)")
-    ap.add_argument("--port", type=int, default=int(os.environ.get("NETSCANNER_PORT", "8080")),
-                    help="Port des Web-Servers (Standard 8080)")
+    ap.add_argument("--port", type=int, default=int(os.environ.get("NETSCANNER_PORT", str(DEFAULT_PORT))),
+                    help="Port des Web-Servers (Standard %d)" % DEFAULT_PORT)
     ap.add_argument("--data", help="Datenverzeichnis (Konfiguration, Scans)")
     ap.add_argument("--no-browser", action="store_true", help="Browser nicht automatisch oeffnen")
     ap.add_argument("--set-password", action="store_true",
@@ -78,6 +78,11 @@ def main(argv=None):
     if args.scan:
         return headless_scan(args.report)
 
+    if not port_free(args.host, args.port):
+        print("FEHLER: Port %d ist bereits von einer anderen Anwendung belegt." % args.port)
+        print("        Anderen Port waehlen, z.B.:  --port %d" % next_free_port(args.host, args.port + 1))
+        return 3
+
     from waitress import serve
     from .web import create_app
     app = create_app(port=args.port)
@@ -87,6 +92,28 @@ def main(argv=None):
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     serve(app, host=args.host, port=args.port, threads=12, channel_timeout=300)
     return 0
+
+
+def port_free(host, port):
+    """True, wenn der TCP-Port auf dieser Adresse noch frei ist."""
+    import socket
+    s = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if os.name == "nt":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        s.bind((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def next_free_port(host, start):
+    for p in range(start, min(start + 200, 65535)):
+        if port_free(host, p):
+            return p
+    return start
 
 
 def headless_scan(report_path=None):

@@ -11,14 +11,14 @@
 
 .EXAMPLE
   .\Install.ps1
-  .\Install.ps1 -Port 8443 -NoFirewall
+  .\Install.ps1 -Port 9000 -NoFirewall
   .\Install.ps1 -Silent -NoService
   .\Install.ps1 -Update -Silent     (wird vom Update-Button im Dashboard verwendet)
 #>
 [CmdletBinding()]
 param(
     [string]$InstallDir = (Join-Path $env:ProgramFiles "NetzwerkScanner"),
-    [int]$Port = 8080,
+    [int]$Port = 8765,
     [switch]$NoService,
     [switch]$NoFirewall,
     [switch]$Silent,
@@ -65,6 +65,19 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 }
 Get-Process -Name "NetzwerkScanner" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
+
+# ------------------------------------------------------------ Port pruefen
+function Test-PortInUse([int]$p) {
+    return [bool](Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue)
+}
+if (-not $Update -and (Test-PortInUse $Port)) {
+    $owner = (Get-NetTCPConnection -LocalPort $Port -State Listen | Select-Object -First 1).OwningProcess
+    $name = (Get-Process -Id $owner -ErrorAction SilentlyContinue).ProcessName
+    $old = $Port
+    do { $Port++ } while ((Test-PortInUse $Port) -and $Port -lt 65535)
+    Write-Host "Port $old ist bereits belegt (Prozess: $name) - verwende Port $Port." -ForegroundColor Yellow
+    $portChanged = $true
+}
 
 # ------------------------------------------------------------ Dateien kopieren
 if (-not $FromInno) {
@@ -166,4 +179,7 @@ if (-not $hasPw -and $Silent) {
 }
 if (-not $NoService -and -not $Silent) { Start-Process "http://localhost:$Port/" }
 if ($Update) { try { Stop-Transcript | Out-Null } catch { } }
-if (-not $Silent -and -not $FromInno) { Read-Host "Enter zum Beenden" | Out-Null }
+if ($portChanged -and -not $Silent) {
+    Write-Host "  HINWEIS: Das Dashboard laeuft auf Port $Port (Standard-Port war belegt)." -ForegroundColor Yellow
+}
+if (-not $Silent -and (-not $FromInno -or $portChanged)) { Read-Host "Enter zum Beenden" | Out-Null }

@@ -9,7 +9,7 @@ from functools import wraps
 from flask import (Flask, Response, abort, g, jsonify, redirect, render_template, request, send_from_directory,
                    session, url_for)
 
-from . import __version__, config as cfgmod, configbackup, discovery, engine, reports, storage, updater, users
+from . import __version__, DEFAULT_PORT, config as cfgmod, configbackup, discovery, engine, reports, storage, updater, users
 from .compare import compare
 from .paths import resource_dir, data_dir
 from .snmp import probe
@@ -55,7 +55,7 @@ def unmask(new, old):
     return new
 
 
-def create_app(port=8080):
+def create_app(port=DEFAULT_PORT):
     res = resource_dir()
     app = Flask(__name__, template_folder=os.path.join(res, "templates"),
                 static_folder=os.path.join(res, "static"))

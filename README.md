@@ -80,6 +80,10 @@ Der Gerätetyp wird aus den SNMP-Daten erkannt (Cisco IOS/NX-OS, Aruba AOS-CX/AO
 
 ---
 
+## Dashboard-Port
+
+Das Dashboard läuft standardmäßig auf **Port 8765** (`http://<server>:8765/`). Ist der Port bereits belegt, nehmen die Installer automatisch den nächsten freien Port und zeigen ihn am Ende an. Eigener Port: Windows `-Port 9000`, Kali `--port 9000`.
+
 ## Installation direkt von GitHub
 
 Die Installationspakete werden bei jeder neuen Version automatisch von GitHub Actions gebaut und unter [Releases](https://github.com/aroth-bit/NetzwerkScanner/releases) veröffentlicht. Die folgenden Befehle laden immer die neueste Version, prüfen die SHA-256-Prüfsumme und installieren.
@@ -118,13 +122,13 @@ Neue Version veröffentlichen: `__version__` in `netscanner/__init__.py` erhöhe
 ## Installation Windows Server (manuell)
 
 ### Variante A: Setup-Assistent
-`NetzwerkScanner-Setup-<version>.exe` als Administrator ausführen. Optionen: Hintergrunddienst (Port 8080) und Firewall-Regel. Am Ende wird der erste Administrator angelegt.
+`NetzwerkScanner-Setup-<version>.exe` als Administrator ausführen. Optionen: Hintergrunddienst (Port 8765) und Firewall-Regel. Am Ende wird der erste Administrator angelegt.
 
 ### Variante B: ZIP-Paket
 1. `NetzwerkScanner-<version>-Windows.zip` entpacken
 2. `Install.cmd` doppelklicken (fordert Administratorrechte an)
 3. ersten Administrator (Benutzername + Passwort) anlegen
-4. Browser öffnet `http://localhost:8080/`
+4. Browser öffnet `http://localhost:8765/`
 
 Optionen: `Install.cmd -Port 9000`, `-NoService` (nur manuell starten), `-NoFirewall`, `-Silent`.
 
@@ -148,14 +152,14 @@ Benötigt Python 3.10+. Erzeugt `dist\NetzwerkScanner-<version>-Windows.zip` und
 ```bash
 sudo ./installer/linux/install_kali.sh
 ```
-Installiert Python-Umgebung, nmap, den Befehl `netscanner` und den systemd-Dienst `netscanner` (Port 8080). Optionen: `--port 9000`, `--no-service`. Entfernen mit `sudo /opt/netscanner/uninstall.sh` (`--purge` löscht auch die Daten).
+Installiert Python-Umgebung, nmap, den Befehl `netscanner` und den systemd-Dienst `netscanner` (Port 8765). Optionen: `--port 9000`, `--no-service`. Entfernen mit `sudo /opt/netscanner/uninstall.sh` (`--purge` löscht auch die Daten).
 
 Ohne Internet (offline): auf einem Rechner mit Internet `pip download -r requirements.txt -d wheels` (gleiche Python-Version) ausführen und den Ordner `wheels/` neben `installer/` legen – das Skript installiert dann offline.
 
 Ohne Installation testen:
 ```bash
 python3 -m venv venv && venv/bin/pip install -r requirements.txt
-venv/bin/python -m netscanner --port 8080 --demo
+venv/bin/python -m netscanner --demo
 ```
 
 ---
@@ -175,7 +179,7 @@ venv/bin/python -m netscanner --port 8080 --demo
 ## Kommandozeile
 
 ```
-netscanner [--host 0.0.0.0] [--port 8080] [--data VERZ] [--no-browser]
+netscanner [--host 0.0.0.0] [--port 8765] [--data VERZ] [--no-browser]
 netscanner --set-password [--user NAME]   Passwort setzen (legt den Benutzer als Administrator an, falls neu)
 netscanner --list-users                   Benutzer auflisten
 netscanner --configure-update OWNER/REPO  Update-Quelle festlegen (Token aus GITHUB_TOKEN)
@@ -202,7 +206,7 @@ Unter Windows: `"C:\Program Files\NetzwerkScanner\NetzwerkScanner.exe" --data C:
 | Cisco: MAC-Tabellen leer | SNMPv2c: Community muss für `community@vlan` gelten; SNMPv3: VLAN-Kontexte freigeben |
 | Keine Hostnamen | Reverse-DNS-Zonen fehlen → NetBIOS hilft bei Windows; LLDP-Namen werden ebenfalls genutzt |
 | Scan großer Netze dauert lange | nmap installieren, „TCP-Prüfung“ deaktivieren, Netze eingrenzen |
-| Port 8080 belegt | Installation mit `-Port` / `--port` wiederholen |
+| Port belegt | Die Installer weichen automatisch auf den nächsten freien Port aus (Meldung beachten). Manuell: Installation mit `-Port 9000` bzw. `--port 9000` wiederholen |
 
 ## Projektstruktur
 

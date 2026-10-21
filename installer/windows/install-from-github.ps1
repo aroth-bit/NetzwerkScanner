@@ -19,7 +19,7 @@ param(
     [string]$Repo = "aroth-bit/NetzwerkScanner",
     [string]$Token = $env:GITHUB_TOKEN,
     [string]$Tag = "latest",
-    [int]$Port = 8080,
+    [int]$Port = 8765,
     [switch]$NoService,
     [switch]$NoFirewall,
     [switch]$Silent
