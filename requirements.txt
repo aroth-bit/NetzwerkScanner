@@ -6,3 +6,7 @@ pysnmp>=7.1.20,<8
 pyasn1>=0.6
 cryptography>=42
 netmiko>=4.4,<5
+# Paramiko 4/5 haben alte SSH-Verfahren entfernt (diffie-hellman-group1/14-sha1, ssh-rsa, ssh-dss).
+# Viele aeltere Switches bieten nur diese an -> "Incompatible ssh peer (no acceptable kex algorithm)".
+# Mit 3.5 werden bei neuen Switches trotzdem die modernen Verfahren ausgehandelt.
+paramiko>=3.5.1,<4

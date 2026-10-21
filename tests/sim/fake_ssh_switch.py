@@ -2,6 +2,9 @@
 
   python fake_ssh_switch.py <benutzer> <passwort> <enable> 127.0.0.11:2222=CORE-SW01 127.0.0.13:2222=ACC-SW02
 
+Mit dem Zusatz ",legacy" (z.B. 127.0.0.12:2222=OLD-SW,legacy) verhaelt sich der Switch wie ein altes
+Geraet und bietet nur veraltete SSH-Verfahren an (diffie-hellman-group1/14-sha1, ssh-rsa, CBC, hmac-sha1).
+
 Jeder Abruf von 'show running-config' liefert eine leicht geaenderte Konfiguration (Zaehler),
 damit Versionen und Vergleich getestet werden koennen.
 """
@@ -14,6 +17,12 @@ import paramiko
 
 HOST_KEY = paramiko.RSAKey.generate(2048)
 CALLS = {}
+
+# Was alte Switche (z.B. Cisco IOS 12.x, HP ProCurve, aeltere Dell/Netgear) typischerweise anbieten
+LEGACY_KEX = ("diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1")
+LEGACY_KEYS = ("ssh-rsa",)
+LEGACY_CIPHERS = ("aes128-cbc", "3des-cbc")
+LEGACY_MACS = ("hmac-sha1",)
 
 
 def config_text(name):
@@ -103,20 +112,39 @@ def session(chan, name, enable_pw):
                     chan.send(ch)  # Echo wie ein echtes Geraet
 
 
-def serve(addr, port, name, user, pw, enable_pw):
+def listen(addr, port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((addr, port))
     s.listen(20)
-    print("SSH-Simulator %s auf %s:%d" % (name, addr, port), flush=True)
+    return s
+
+
+def serve(addr, port, name, user, pw, enable_pw, legacy=False, sock=None):
+    s = sock or listen(addr, port)
+    print("SSH-Simulator %s auf %s:%d%s" % (name, addr, s.getsockname()[1], " (alter Switch)" if legacy else ""),
+          flush=True)
     while True:
         client, _ = s.accept()
-        threading.Thread(target=handle, args=(client, name, user, pw, enable_pw), daemon=True).start()
+        threading.Thread(target=handle, args=(client, name, user, pw, enable_pw, legacy), daemon=True).start()
 
 
-def handle(client, name, user, pw, enable_pw):
+def start(name, user, pw, enable_pw, legacy=False, addr="127.0.0.1"):
+    """Simulator im Hintergrund starten (fuer Tests) -> Port."""
+    sock = listen(addr, 0)
+    threading.Thread(target=serve, args=(addr, 0, name, user, pw, enable_pw, legacy, sock), daemon=True).start()
+    return sock.getsockname()[1]
+
+
+def handle(client, name, user, pw, enable_pw, legacy=False):
     t = paramiko.Transport(client)
     t.add_server_key(HOST_KEY)
+    if legacy:
+        opts = t.get_security_options()
+        opts.kex = LEGACY_KEX
+        opts.key_types = LEGACY_KEYS
+        opts.ciphers = LEGACY_CIPHERS
+        opts.digests = LEGACY_MACS
     srv = Server(user, pw)
     try:
         t.start_server(server=srv)
@@ -135,6 +163,8 @@ if __name__ == "__main__":
     user, pw, enable_pw = sys.argv[1:4]
     for spec in sys.argv[4:]:
         hp, name = spec.split("=")
+        name, _, flag = name.partition(",")
         h, p = hp.split(":")
-        threading.Thread(target=serve, args=(h, int(p), name, user, pw, enable_pw), daemon=True).start()
+        threading.Thread(target=serve, args=(h, int(p), name, user, pw, enable_pw, flag == "legacy"),
+                         daemon=True).start()
     threading.Event().wait()
