@@ -3,6 +3,8 @@
 #
 #   Neue Version:  netscanner/__init__.py -> __version__ anpassen, committen, dann
 #                  git tag v1.2.0 && git push origin v1.2.0
+#   oder ohne Git: GitHub -> Actions -> Release -> "Run workflow" (Branch main). Der Workflow legt
+#                  dann den Tag v<__version__> und das Release selbst an.
 name: Release
 
 on:
@@ -62,9 +64,20 @@ jobs:
 
   release:
     needs: [windows, linux]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Tag bestimmen
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            v=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' netscanner/__init__.py)
+            [ -n "$v" ] || { echo "__version__ nicht gefunden"; exit 1; }
+            echo "name=v$v" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -72,9 +85,15 @@ jobs:
       - name: Release veroeffentlichen
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.name }}
         run: |
           ls -la dist
-          gh release create "${{ github.ref_name }}" dist/* \
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG existiert bereits - bitte __version__ erhoehen."; exit 1
+          fi
+          # Beim manuellen Start legt gh den Tag auf dem gebauten Commit an
+          gh release create "$TAG" dist/* \
             --repo "${{ github.repository }}" \
-            --title "NetzwerkScanner ${{ github.ref_name }}" \
+            --target "${{ github.sha }}" \
+            --title "NetzwerkScanner $TAG" \
             --generate-notes
