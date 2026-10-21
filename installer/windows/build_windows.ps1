@@ -61,6 +61,10 @@ if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path (Join-Path $pkg "*") -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "    $zip"
 
+# ------------------------------------------------------------ Online-Installer
+Write-Host "==> Online-Installer (NetzwerkScanner-Installer.exe)"
+& (Join-Path $PSScriptRoot "webinstaller\build_webinstaller.ps1") -OutDir $Dist
+
 # ------------------------------------------------------------ Setup.exe (Inno Setup)
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
           "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1

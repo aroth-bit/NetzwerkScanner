@@ -39,6 +39,7 @@ jobs:
           path: |
             dist/NetzwerkScanner-*-Windows.zip
             dist/NetzwerkScanner-Setup-*.exe
+            dist/NetzwerkScanner-Installer.exe
 
   linux:
     runs-on: ubuntu-latest

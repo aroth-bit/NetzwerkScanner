@@ -14,6 +14,9 @@
       & ([scriptblock]::Create((irm -Headers @{Authorization="Bearer $t"} https://raw.githubusercontent.com/aroth-bit/NetzwerkScanner/main/installer/windows/install-from-github.ps1))) -Token $t
 
   Weitere Parameter werden an Install.ps1 weitergegeben: -Port 9000 -NoService -NoFirewall -Silent
+
+  Nur herunterladen (z.B. fuer Server ohne Internet), keine Installation, keine Adminrechte noetig:
+      install-from-github.ps1 -DownloadOnly -OutDir D:\Pakete
 #>
 param(
     [string]$Repo = "aroth-bit/NetzwerkScanner",
@@ -22,7 +25,9 @@ param(
     [int]$Port = 8765,
     [switch]$NoService,
     [switch]$NoFirewall,
-    [switch]$Silent
+    [switch]$Silent,
+    [switch]$DownloadOnly,
+    [string]$OutDir = ""
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -30,7 +35,7 @@ $ProgressPreference = "SilentlyContinue"
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
            ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) { throw "Bitte PowerShell 'Als Administrator ausfuehren' und den Befehl erneut starten." }
+if (-not $isAdmin -and -not $DownloadOnly) { throw "Bitte PowerShell 'Als Administrator ausfuehren' und den Befehl erneut starten." }
 
 $headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "NetzwerkScanner-Installer" }
 if ($Token) { $headers["Authorization"] = "Bearer $Token" }
@@ -66,6 +71,18 @@ if ($asset.digest -and $asset.digest -like "sha256:*") {
     if ($asset.digest.Substring(7) -ne $hash) { throw "Pruefsumme stimmt nicht - Download verworfen." }
     Write-Host "    SHA-256 geprueft: $hash"
 } else { Write-Host "    SHA-256: $hash (keine Referenz im Release)" }
+
+if ($DownloadOnly) {
+    if (-not $OutDir) { $OutDir = Join-Path $env:USERPROFILE "Downloads" }
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    $target = Join-Path $OutDir $asset.name
+    Move-Item -Force $zip $target
+    Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    Write-Host ""
+    Write-Host "Paket gespeichert: $target" -ForegroundColor Green
+    Write-Host "Installation: ZIP entpacken und Install.cmd als Administrator starten."
+    return
+}
 
 Expand-Archive -LiteralPath $zip -DestinationPath $work -Force
 $installer = Join-Path $work "Install.ps1"
