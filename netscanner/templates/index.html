@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetzwerkScanner</title>
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}">
+</head>
+<body>
+<header class="top">
+  <div class="topbar">
+    <div class="brand"><img src="{{ url_for('static', filename='favicon.svg') }}" width="26" alt=""> NetzwerkScanner</div>
+    <select id="scanSelect" title="Angezeigter Scan" style="max-width:340px"></select>
+    <span id="scanInfo" class="muted small"></span>
+    <div class="spacer"></div>
+    <div class="dropdown" id="reportDd">
+      <button class="primary" id="reportBtn">&#x2B07; Report herunterladen</button>
+      <div class="menu">
+        <a data-fmt="xlsx" href="#">Excel-Patchliste (.xlsx)<small>Uebersicht, Patchliste, je Switch alle Ports, Geraete, VLANs</small></a>
+        <a data-fmt="pdf" href="#">PDF zum Ausdrucken<small>Je Switch Frontansicht + Port-Tabelle mit Abhak-Spalte</small></a>
+        <a data-fmt="csv" href="#">CSV Patchliste<small>nur zu patchende Ports</small></a>
+        <a data-fmt="csv-all" href="#">CSV alle Ports</a>
+        <a data-fmt="csv-devices" href="#">CSV Geraeteliste</a>
+        <a data-fmt="json" href="#">Rohdaten (JSON)<small>zum Import auf einem anderen Scanner</small></a>
+      </div>
+    </div>
+    <button id="themeBtn" class="sm" title="Hell/Dunkel">&#9681;</button>
+    <a class="btn sm" href="/logout">Abmelden</a>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="overview" class="active">Uebersicht</button>
+    <button data-tab="topology">Topologie</button>
+    <button data-tab="switches">Switches &amp; Ports</button>
+    <button data-tab="devices">Geraete</button>
+    <button data-tab="vlans">VLANs &amp; Netze</button>
+    <button data-tab="plan">Umzugsplanung</button>
+    <button data-tab="compare">Vergleich</button>
+    <button data-tab="scan">Scan &amp; Einstellungen</button>
+  </nav>
+</header>
+
+<main>
+  <!-- =============================================================== Uebersicht -->
+  <section class="tab active" id="tab-overview">
+    <div id="noScan" class="card empty" style="display:none">
+      <h2>Noch kein Scan vorhanden</h2>
+      <p>Tragen Sie unter <b>Scan &amp; Einstellungen</b> Ihre Netze, Switches und SNMP-Zugangsdaten ein und starten Sie den ersten Scan.</p>
+      <div class="row" style="justify-content:center">
+        <button class="primary" onclick="showTab('scan')">Scan einrichten</button>
+        <button onclick="loadDemo()">Demo-Daten ansehen</button>
+      </div>
+    </div>
+    <div id="overviewBody">
+      <div class="kpis" id="kpis"></div>
+      <div id="warnings"></div>
+      <div class="card">
+        <div class="card-head"><h3>Switches</h3><span class="muted small">Klick oeffnet die Frontansicht</span></div>
+        <div class="tablewrap"><table class="data" id="ovSwitches"></table></div>
+        <div class="legend" style="margin-top:10px" id="legend1"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== Topologie -->
+  <section class="tab" id="tab-topology">
+    <div class="card" style="padding:12px">
+      <div class="row">
+        <label class="chk" style="margin:0"><input type="checkbox" id="topoDevices"> Endgeraete anzeigen</label>
+        <label class="chk" style="margin:0"><input type="checkbox" id="topoVirtual"> inkl. virtuelle Maschinen</label>
+        <select id="topoVlan"><option value="">Alle VLANs</option></select>
+        <select id="topoLayout"><option value="hier">Hierarchisch</option><option value="free">Frei (Physik)</option></select>
+        <input type="text" id="topoSearch" placeholder="Suchen: Hostname, IP, MAC ..." style="min-width:240px">
+        <button class="sm" id="topoFit">Einpassen</button>
+        <span class="muted small" id="topoInfo"></span>
+      </div>
+    </div>
+    <div class="topo-wrap">
+      <div id="topo"></div>
+      <div class="card side-panel" id="topoSide"><p class="muted">Element anklicken fuer Details.</p></div>
+    </div>
+  </section>
+
+  <!-- =============================================================== Switches -->
+  <section class="tab" id="tab-switches">
+    <div class="card" style="padding:12px">
+      <div class="row">
+        <select id="swFilter"><option value="">Alle Switches</option></select>
+        <input type="text" id="swSearch" placeholder="Port/Geraet hervorheben: Hostname, IP, MAC, Beschreibung ..." style="min-width:320px">
+        <label class="chk" style="margin:0"><input type="checkbox" id="swTable"> Port-Tabelle anzeigen</label>
+        <div class="spacer" style="flex:1"></div>
+        <div class="legend" id="legend2"></div>
+      </div>
+    </div>
+    <div id="switchList"></div>
+  </section>
+
+  <!-- =============================================================== Geraete -->
+  <section class="tab" id="tab-devices">
+    <div class="card" style="padding:12px">
+      <div class="row">
+        <input type="text" id="devSearch" placeholder="Suchen: Hostname, IP, MAC, Hersteller, Port ..." style="min-width:300px">
+        <select id="devVlan"><option value="">Alle VLANs</option></select>
+        <select id="devSwitch"><option value="">Alle Switches</option></select>
+        <select id="devType"><option value="">Alle Typen</option></select>
+        <label class="chk" style="margin:0"><input type="checkbox" id="devNoPort"> nur ohne Port-Zuordnung</label>
+        <label class="chk" style="margin:0"><input type="checkbox" id="devHideVm"> VMs ausblenden</label>
+        <span class="muted small" id="devCount"></span>
+      </div>
+    </div>
+    <div class="tablewrap" style="max-height:calc(100vh - 230px)"><table class="data" id="devTable"></table></div>
+  </section>
+
+  <!-- =============================================================== VLANs -->
+  <section class="tab" id="tab-vlans">
+    <div class="grid g2">
+      <div class="card"><h3>VLANs</h3><div class="tablewrap"><table class="data" id="vlanTable"></table></div></div>
+      <div class="card"><h3>IP-Netze</h3><div class="tablewrap"><table class="data" id="netTable"></table></div></div>
+    </div>
+    <div class="card" id="vlanDetail" style="display:none"></div>
+  </section>
+
+  <!-- =============================================================== Umzugsplanung -->
+  <section class="tab" id="tab-plan">
+    <div class="card">
+      <div class="card-head">
+        <h3>Umzugsplanung / Patchplan</h3>
+        <span class="muted small">Ziel-Switch &amp; Ziel-Port je Quell-Port eintragen. Wird automatisch gespeichert und in alle Reports uebernommen.</span>
+      </div>
+      <div class="row">
+        <select id="planSwitch"></select>
+        <label class="chk" style="margin:0"><input type="checkbox" id="planAll"> auch freie Ports anzeigen</label>
+        <span class="muted small">|</span>
+        <input type="text" id="planBulkSwitch" placeholder="Ziel-Switch fuer alle Ports" style="width:200px">
+        <button class="sm" id="planBulk1">Ziel-Switch setzen</button>
+        <button class="sm" id="planBulk2" title="Ziel-Port = Quell-Port fuer alle leeren Ziel-Ports">Ports 1:1 uebernehmen</button>
+        <div style="flex:1"></div>
+        <span id="planProgress" class="small"></span>
+      </div>
+      <div class="progress" style="margin-top:10px"><div id="planBar"></div></div>
+    </div>
+    <div class="tablewrap" style="max-height:calc(100vh - 330px)"><table class="data" id="planTable"></table></div>
+  </section>
+
+  <!-- =============================================================== Vergleich -->
+  <section class="tab" id="tab-compare">
+    <div class="card">
+      <h3>Scans vergleichen (z.B. vor und nach dem Umzug)</h3>
+      <p class="muted small">Zeigt fehlende, neue und umgezogene Geraete. Ist im Patchplan ein Ziel eingetragen, wird geprueft, ob das Geraet am geplanten Port angekommen ist.</p>
+      <div class="row">
+        <label>Vorher</label><select id="cmpA"></select>
+        <label>Nachher</label><select id="cmpB"></select>
+        <button class="primary" id="cmpBtn">Vergleichen</button>
+        <select id="cmpFilter"><option value="">Alle Status</option></select>
+        <label class="chk" style="margin:0"><input type="checkbox" id="cmpHideVm"> VMs ausblenden</label>
+      </div>
+      <div id="cmpSummary" class="row" style="margin-top:12px"></div>
+    </div>
+    <div class="tablewrap" style="max-height:calc(100vh - 360px)"><table class="data" id="cmpTable"></table></div>
+  </section>
+
+  <!-- =============================================================== Scan -->
+  <section class="tab" id="tab-scan">
+    <div class="grid g2">
+      <div>
+        <div class="card">
+          <div class="card-head"><h3>Scan starten</h3></div>
+          <div class="row" style="margin-bottom:10px">
+            <input type="text" id="scanName" placeholder="Name (z.B. 'Ist-Stand RZ alt')" style="flex:1;min-width:200px">
+            <button class="primary" id="startBtn">&#9654; Speichern &amp; Scan starten</button>
+            <button id="cancelBtn" class="danger" style="display:none">Abbrechen</button>
+          </div>
+          <div class="progress"><div id="scanBar"></div></div>
+          <div class="row small" style="margin-top:6px"><b id="scanPhase">Bereit</b><span class="muted" id="scanMsg"></span></div>
+          <div class="log" id="scanLog"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Gespeicherte Scans</h3>
+            <div style="flex:1"></div>
+            <label class="btn sm">JSON importieren<input type="file" id="importFile" accept=".json" style="display:none"></label>
+          </div>
+          <div class="tablewrap"><table class="data" id="scanTable"></table></div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <div class="card-head"><h3>Einstellungen</h3><div style="flex:1"></div><button class="sm" id="saveCfg">Speichern</button></div>
+          <div class="field">
+            <label>Switches, Router &amp; Firewalls (SNMP)</label>
+            <textarea id="cfgSnmp" rows="4" placeholder="10.0.0.1&#10;10.0.0.2&#10;10.0.100.0/24"></textarea>
+            <div class="hint">Eine Adresse pro Zeile (auch Bereiche/CIDR). Am besten mit dem Core-Switch / Gateway beginnen - weitere Switches werden ueber LLDP/CDP automatisch gefunden. Router/L3-Switches liefern ARP-Tabellen (IP&harr;MAC) und die Subnetze aller VLANs.</div>
+            <div class="row" style="margin-top:6px"><input type="text" id="testHost" placeholder="SNMP testen: IP" style="width:180px"><button class="sm" id="testBtn">Testen</button><span id="testRes" class="small"></span></div>
+          </div>
+          <div class="field">
+            <label>Zusaetzliche Netze fuer Ping-/TCP-Scan</label>
+            <textarea id="cfgSubnets" rows="3" placeholder="10.0.10.0/24&#10;192.168.1.1-254"></textarea>
+            <div class="hint">CIDR, Bereich oder einzelne IP. Subnetze der Router werden zusaetzlich automatisch gescannt (siehe Optionen). <a href="#" id="addLocal">Lokale Netze einfuegen</a> <span id="localNets" class="muted"></span></div>
+          </div>
+          <div class="field">
+            <label>Ausschliessen</label>
+            <textarea id="cfgExclude" rows="2" placeholder="10.0.10.200-210"></textarea>
+          </div>
+          <div class="field">
+            <label>SNMP-Zugangsdaten <span class="muted small">(werden der Reihe nach probiert)</span></label>
+            <div class="cred muted small"><span>Name</span><span>Version</span><span>Community / Benutzer</span><span>Auth-Passwort</span><span>Auth</span><span>Priv-Passwort</span><span>Priv</span><span></span></div>
+            <div id="creds"></div>
+            <div class="row"><button class="sm" id="addV2">+ SNMP v2c</button><button class="sm" id="addV3">+ SNMP v3</button></div>
+          </div>
+          <div class="field">
+            <label>VLAN-Definitionen <span class="muted small">(optional - ergaenzt die per SNMP gefundenen)</span></label>
+            <div id="vlanDefs"></div>
+            <button class="sm" id="addVlan">+ VLAN</button>
+          </div>
+          <div class="field">
+            <label>Optionen</label>
+            <div class="opts" id="opts"></div>
+          </div>
+          <p class="muted small" id="dataDir"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal-bg" id="modalBg"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="{{ url_for('static', filename='vendor/vis-network.min.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v={{ version }}"></script>
+</body>
+</html>

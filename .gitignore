@@ -1,0 +1,16 @@
+# Build-Ergebnisse (Installer werden als GitHub-Release veroeffentlicht)
+dist/
+build/
+*.spec.bak
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+wheels/
+
+# Lokale Daten / Testausgaben
+simdata/
+simcache/
+*.log
