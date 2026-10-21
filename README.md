@@ -58,6 +58,8 @@ Die Rechte werden auf dem Server geprüft (nicht nur in der Oberfläche). Nach 5
 3. Je Switch entsteht ein Unterordner mit `<Switch>_<Datum-Uhrzeit>.cfg`. Es bleiben **höchstens 5 Versionen** – die sechste Sicherung ersetzt automatisch die älteste.
 4. **Versionen** zeigt alle Stände; **Vergleich mit Vorversion** zeigt die Änderungen zeilengenau.
 
+**Alte und neue Switches:** Die Sicherung handelt automatisch das stärkste SSH-Verfahren aus, das der Switch kann. Neue Geräte nutzen moderne Verfahren (curve25519, rsa-sha2, AES-CTR/GCM); ältere Geräte, die nur noch `diffie-hellman-group1/14-sha1`, `ssh-rsa`/`ssh-dss`, CBC oder `hmac-sha1` anbieten, funktionieren ebenfalls. Dafür ist die SSH-Bibliothek bewusst auf Paramiko 3.5 festgelegt – neuere Versionen haben diese Verfahren entfernt („Incompatible ssh peer (no acceptable kex algorithm)“). `python tests/test_ssh_compat.py` prüft beides mit dem Simulator.
+
 Der Gerätetyp wird aus den SNMP-Daten erkannt (Cisco IOS/NX-OS, Aruba AOS-CX/AOS-Switch, Comware, Huawei, Juniper, Arista, Dell, Extreme, Fortinet, Palo Alto, MikroTik u. a.) und kann je Switch überschrieben werden.
 
 ## Reports (Download über „Report herunterladen“)

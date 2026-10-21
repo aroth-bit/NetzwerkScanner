@@ -52,6 +52,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           python tests/test_web.py --no-ssh
+          python tests/test_ssh_compat.py
       - name: Linux-Paket bauen
         run: python installer/linux/build_linux_package.py dist
       - uses: actions/upload-artifact@v4

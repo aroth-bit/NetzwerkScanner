@@ -144,8 +144,69 @@ def default_location():
 
 # ---------------------------------------------------------------- Abruf per SSH
 
+# Alte Switches (z.B. Cisco IOS 12.x, HP ProCurve, aeltere Dell/Netgear/D-Link) bieten oft nur noch
+# diese Verfahren an. Paramiko waehlt immer das staerkste gemeinsame Verfahren - neue Switches nutzen
+# also weiterhin moderne Algorithmen, die alten greifen nur, wenn der Switch nichts anderes kann.
+LEGACY_KEX = ("diffie-hellman-group14-sha1", "diffie-hellman-group-exchange-sha1", "diffie-hellman-group1-sha1")
+LEGACY_HOSTKEYS = ("ssh-rsa", "ssh-dss")
+# Manche alte Firmware bricht beim Gruppenaustausch (group-exchange) ab -> zweiter Versuch ohne
+GEX_KEX = ["diffie-hellman-group-exchange-sha256", "diffie-hellman-group-exchange-sha1"]
+
+
+def legacy_ssh_missing():
+    """Liste der alten SSH-Verfahren, die die installierte Paramiko-Version nicht (mehr) kennt."""
+    try:
+        from paramiko.transport import Transport
+    except ImportError:
+        return []
+    return [a for a in LEGACY_KEX if a not in Transport._preferred_kex] + \
+           [a for a in LEGACY_HOSTKEYS if a not in Transport._preferred_keys]
+
+
+def _friendly_ssh_error(exc):
+    msg = str(exc).strip()
+    if "Incompatible ssh peer" in msg or "no acceptable" in msg:
+        what = re.search(r"no acceptable ([\w -]+)", msg)
+        text = ("Switch und Scanner haben kein gemeinsames SSH-Verfahren (%s). "
+                % (what.group(1).strip() if what else "Aushandlung"))
+        missing = legacy_ssh_missing()
+        if missing:
+            text += ("Die installierte SSH-Bibliothek (paramiko) unterstuetzt keine alten Verfahren mehr "
+                     "(%s) - bitte NetzwerkScanner aktualisieren." % ", ".join(missing))
+        else:
+            text += "Der Switch bietet vermutlich nur sehr alte oder ungewoehnliche Verfahren an (z.B. SSHv1)."
+        return RuntimeError(text)
+    return exc
+
+
+def _is_negotiation_error(exc):
+    msg = str(exc).lower()
+    return any(k in msg for k in ("error reading ssh protocol banner", "negotiation", "eof during",
+                                  "connection reset"))
+
+
 def fetch_config(host, cred, device_type, timeout=20):
     """-> (config_text, effektiver device_type). Wirft Exception bei Fehlern."""
+    try:
+        return _fetch_config(host, cred, device_type, timeout)
+    except Exception as e:
+        if "Incompatible ssh peer" in str(e) or not _is_negotiation_error(e) or "auth" in str(e).lower():
+            _reraise(e)
+        # zweiter Versuch fuer alte Firmware mit fehlerhaftem group-exchange
+        try:
+            return _fetch_config(host, cred, device_type, timeout, disabled_algorithms={"kex": GEX_KEX})
+        except Exception as e2:
+            _reraise(e2)
+
+
+def _reraise(exc):
+    friendly = _friendly_ssh_error(exc)
+    if friendly is exc:
+        raise exc
+    raise friendly from exc
+
+
+def _fetch_config(host, cred, device_type, timeout=20, disabled_algorithms=None):
     from netmiko import ConnectHandler, SSHDetect
 
     params = {
@@ -154,6 +215,8 @@ def fetch_config(host, cred, device_type, timeout=20):
         "conn_timeout": timeout, "auth_timeout": timeout, "banner_timeout": timeout,
         "fast_cli": False, "allow_agent": False, "use_keys": False,
     }
+    if disabled_algorithms:
+        params["disabled_algorithms"] = disabled_algorithms
     if device_type in (None, "", "auto", "autodetect"):
         det = SSHDetect(device_type="autodetect", **params)
         device_type = det.autodetect() or "cisco_ios"
