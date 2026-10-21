@@ -2,6 +2,9 @@
 ; Kompilieren: build_windows.ps1 (ruft ISCC.exe auf) oder in Inno Setup 6 oeffnen und F9.
 ; Erwartet den PyInstaller-Build unter ..\..\dist\NetzwerkScanner
 
+#ifndef AppPort
+  #define AppPort "8765"
+#endif
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
@@ -30,8 +33,8 @@ CloseApplications=yes
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 
 [Tasks]
-Name: "service"; Description: "Als Hintergrunddienst beim Windows-Start ausfuehren (Dashboard auf Port 8080)"
-Name: "firewall"; Description: "Windows-Firewall fuer das Dashboard oeffnen (Domaene/Privat, TCP 8080)"
+Name: "service"; Description: "Als Hintergrunddienst beim Windows-Start ausfuehren (Dashboard auf Port {#AppPort}, bei Belegung naechster freier Port)"
+Name: "firewall"; Description: "Windows-Firewall fuer das Dashboard oeffnen (Domaene/Privat, TCP-Port des Dashboards)"
 
 [Files]
 Source: "..\..\dist\NetzwerkScanner\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -40,9 +43,8 @@ Source: "Uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Install.ps1"" -FromInno -InstallDir ""{app}"" {code:ExtraArgs}"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Install.ps1"" -FromInno -InstallDir ""{app}"" -Port {#AppPort} {code:ExtraArgs}"; \
   StatusMsg: "Richte Dienst, Firewall und Passwort ein ..."; Flags: waituntilterminated
-Filename: "http://localhost:8080/"; Description: "Dashboard im Browser oeffnen"; Flags: postinstall shellexec skipifsilent nowait; Tasks: service
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Uninstall.ps1"" -FromInno"; \

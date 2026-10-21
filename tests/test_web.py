@@ -49,7 +49,7 @@ def main():
     with open(os.path.join(TMP, "auth.json"), "w") as f:
         json.dump({"secret_key": "x" * 64, "password_hash": generate_password_hash("altes-passwort-1")}, f)
     check(users.get_user("admin") is None or True, "vor Migration")
-    app = create_app(port=8080)
+    app = create_app()
     check(users.has_users() and users.get_user("admin")["role"] == "admin", "Migration: admin aus auth.json")
 
     anon = app.test_client()

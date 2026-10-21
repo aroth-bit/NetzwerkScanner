@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # NetzwerkScanner - Installation auf Kali Linux / Debian / Ubuntu
 #
-#   sudo ./installer/linux/install_kali.sh            # Installation + systemd-Dienst auf Port 8080
+#   sudo ./installer/linux/install_kali.sh            # Installation + systemd-Dienst auf Port 8765
 #   sudo ./installer/linux/install_kali.sh --port 9000
 #   sudo ./installer/linux/install_kali.sh --no-service
 #   sudo ./installer/linux/install_kali.sh --update     # Update: Port/Dienst bleiben, keine Rueckfragen
@@ -9,12 +9,13 @@
 # Installiert nach /opt/netscanner, Daten unter /var/lib/netscanner, Befehl: netscanner
 set -euo pipefail
 
-PORT=8080
+PORT=8765
+PORT_SET=0
 SERVICE=1
 UPDATE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --port) PORT="$2"; shift 2 ;;
+    --port) PORT="$2"; PORT_SET=1; shift 2 ;;
     --no-service) SERVICE=0; shift ;;
     --update) UPDATE=1; shift ;;
     -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
@@ -40,6 +41,16 @@ if [[ $UPDATE -eq 1 ]]; then
     SERVICE=0
   fi
   echo "==> Update auf Version $(grep -oP '__version__ = "\K[^"]+' "$SRC/netscanner/__init__.py") (Port $PORT)"
+fi
+
+# Port pruefen: belegt durch eine andere Anwendung -> naechsten freien Port nehmen
+port_in_use() {
+  ss -Hltn "sport = :$1" 2>/dev/null | grep -q . && ! ss -Hltnp "sport = :$1" 2>/dev/null | grep -q netscanner
+}
+if [[ $UPDATE -eq 0 ]] && command -v ss >/dev/null && port_in_use "$PORT"; then
+  OLD=$PORT
+  while port_in_use "$PORT" && [[ $PORT -lt 65535 ]]; do PORT=$((PORT + 1)); done
+  echo "Port $OLD ist bereits belegt - verwende Port $PORT."
 fi
 
 echo "==> Systempakete (python3, venv, nmap, ping)"
