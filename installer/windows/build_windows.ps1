@@ -17,7 +17,9 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$Version = "1.0.0"
+$Version = ([regex]::Match((Get-Content (Join-Path $Root "netscanner\__init__.py") -Raw), '__version__ = "([^"]+)"')).Groups[1].Value
+if (-not $Version) { throw "Version nicht gefunden" }
+Write-Host "==> NetzwerkScanner $Version"
 $Dist = Join-Path $Root "dist"
 Set-Location $Root
 
@@ -64,7 +66,7 @@ $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\I
           "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($iscc) {
     Write-Host "==> Inno Setup: $iscc"
-    & $iscc (Join-Path $PSScriptRoot "NetzwerkScanner.iss")
+    & $iscc "/DAppVersion=$Version" (Join-Path $PSScriptRoot "NetzwerkScanner.iss")
     if ($LASTEXITCODE -ne 0) { throw "ISCC fehlgeschlagen" }
 } else {
     # Fallback ohne Zusatzsoftware: selbstentpackendes Setup mit dem Windows-Bordmittel IExpress

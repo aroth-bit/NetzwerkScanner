@@ -20,7 +20,12 @@ def main(argv=None):
                     help="Port des Web-Servers (Standard 8080)")
     ap.add_argument("--data", help="Datenverzeichnis (Konfiguration, Scans)")
     ap.add_argument("--no-browser", action="store_true", help="Browser nicht automatisch oeffnen")
-    ap.add_argument("--set-password", action="store_true", help="Passwort fuer das Dashboard setzen und beenden")
+    ap.add_argument("--set-password", action="store_true",
+                    help="Passwort eines Benutzers setzen (legt ihn als Administrator an, falls neu) und beenden")
+    ap.add_argument("--user", help="Benutzername fuer --set-password (Standard: admin bzw. Abfrage)")
+    ap.add_argument("--list-users", action="store_true", help="Benutzer auflisten und beenden")
+    ap.add_argument("--configure-update", metavar="BESITZER/REPO",
+                    help="GitHub-Repository fuer Updates festlegen (Token aus Umgebungsvariable GITHUB_TOKEN)")
     ap.add_argument("--scan", action="store_true", help="Scan mit gespeicherter Konfiguration ohne Web-UI starten")
     ap.add_argument("--report", help="nach --scan einen Report schreiben (.xlsx, .pdf oder .csv)")
     ap.add_argument("--demo", action="store_true", help="Beispiel-Scan importieren")
@@ -32,14 +37,38 @@ def main(argv=None):
         paths.set_data_dir(args.data)
     print("NetzwerkScanner %s  -  Daten: %s" % (__version__, paths.data_dir()))
 
+    if args.list_users:
+        from . import users
+        for u in users.list_users():
+            print("%-24s %-14s %s" % (u["username"], u["role_label"], "gesperrt" if u["disabled"] else ""))
+        return 0
+
+    if args.configure_update:
+        from .config import load_config, save_config
+        cfg = load_config()
+        cfg["update"] = {"repo": args.configure_update, "token": os.environ.get("GITHUB_TOKEN", "")}
+        save_config(cfg)
+        print("Update-Quelle: %s%s" % (args.configure_update, " (mit Token)" if cfg["update"]["token"] else ""))
+        return 0
+
     if args.set_password:
-        from .config import set_password
-        pw = getpass.getpass("Neues Passwort (min. 8 Zeichen): ")
-        if len(pw) < 8 or pw != getpass.getpass("Wiederholen: "):
-            print("Abgebrochen: zu kurz oder nicht identisch.")
+        from . import users
+        name = args.user
+        if not name:
+            name = (input("Benutzername [admin]: ") if sys.stdin and sys.stdin.isatty() else "").strip() or "admin"
+        exists = users.get_user(name) is not None
+        print("%s '%s'" % ("Neues Passwort fuer" if exists else "Lege Administrator an:", name))
+        pw = getpass.getpass("Passwort (min. 8 Zeichen): ")
+        if pw != getpass.getpass("Wiederholen: "):
+            print("Abgebrochen: Passwoerter nicht identisch.")
             return 1
-        set_password(pw)
-        print("Passwort gespeichert.")
+        try:
+            users.set_password(name, pw, "admin")
+        except users.UserError as e:
+            print("Abgebrochen: %s" % e)
+            return 1
+        users.audit(name, "password_set_cli", "ueber Kommandozeile")
+        print("Gespeichert.")
         return 0
 
     if args.demo:
@@ -51,7 +80,7 @@ def main(argv=None):
 
     from waitress import serve
     from .web import create_app
-    app = create_app()
+    app = create_app(port=args.port)
     url = "http://%s:%d/" % ("localhost" if args.host in ("0.0.0.0", "::") else args.host, args.port)
     print("Dashboard: %s   (Beenden mit Strg+C)" % url)
     if not args.no_browser and not os.environ.get("NETSCANNER_SERVICE"):

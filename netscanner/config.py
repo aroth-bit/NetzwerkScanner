@@ -20,6 +20,12 @@ DEFAULT_CONFIG = {
     ],
     # Manuelle VLAN-Definitionen (ergaenzen die per SNMP gefundenen)
     "vlans": [],  # {"id": 10, "name": "Server", "subnet": "10.0.10.0/24"}
+    # SSH-Zugangsdaten fuer die Konfigurationssicherung, werden der Reihe nach probiert
+    "ssh_credentials": [],  # {"name", "username", "password", "secret" (Enable), "port"}
+    # Netmiko-Geraetetyp je Switch-IP, falls die automatische Erkennung nicht passt
+    "device_types": {},
+    "backup": {"default_location": "", "locations": []},
+    "update": {"repo": "aroth-bit/NetzwerkScanner", "token": ""},
     "options": {
         "lldp_cdp_crawl": True,          # weitere Switches ueber LLDP/CDP-Nachbarn finden
         "auto_subnets": True,            # Subnetze von L3-Interfaces der Router/Switches uebernehmen
@@ -114,9 +120,3 @@ def save_auth(data: dict) -> None:
         json.dump(data, f, indent=2)
     _restrict(p)
 
-
-def set_password(password: str) -> None:
-    from werkzeug.security import generate_password_hash
-    data = load_auth()
-    data["password_hash"] = generate_password_hash(password)
-    save_auth(data)

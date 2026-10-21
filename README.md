@@ -35,7 +35,30 @@ Die Zuordnung **Gerät → Port** erfolgt über die MAC-Tabellen: Ports zu ander
 - **VLANs & Netze** – VLANs mit Subnetzen, Gateways und Geräten
 - **Umzugsplanung** – je Quell-Port Ziel-Switch, Ziel-Port, Kabel-Label, Bemerkung und „Erledigt“ erfassen (wird in alle Reports übernommen)
 - **Vergleich** – Scan vorher/nachher vergleichen: fehlende Geräte, falscher Port (Soll/Ist gegen die Umzugsplanung), neue Geräte
-- **Scan & Einstellungen** – Netze, Switches, SNMP-Zugangsdaten, Optionen, Fortschritt und Protokoll, Scan-Historie, JSON-Import
+- **Konfigurationen** – Switch-Konfigurationen per SSH sichern (einzeln, Auswahl oder alle), Speicherort wählen, Versionen ansehen, vergleichen, herunterladen
+- **Scan & Einstellungen** – Netze, Switches, SNMP- und SSH-Zugangsdaten, Optionen, Fortschritt und Protokoll, Scan-Historie, JSON-Import
+- **Benutzer** – Benutzer anlegen, Rollen vergeben, sperren (nur Administratoren)
+- **Protokoll** – wer hat wann was gemacht (Anmeldungen, Scans, Sicherungen, Änderungen) – für Administratoren und Audit
+- **System & Update** – installierte Version, Update von GitHub per Knopfdruck
+
+## Benutzer und Rollen
+
+| Rolle | Rechte |
+|---|---|
+| **Administrator** | alles: Einstellungen und Zugangsdaten, Benutzerverwaltung, Updates, Scans/Sicherungen löschen, beliebige Speicherorte |
+| **Benutzer** | alles ansehen, Scans starten, Umzugsplanung bearbeiten, Konfigurationen sichern (an den vom Admin freigegebenen Speicherorten), Reports |
+| **Audit** | nur lesen: Ergebnisse, Reports, gesicherte Konfigurationen, Protokoll – keine Änderungen |
+
+Die Rechte werden auf dem Server geprüft (nicht nur in der Oberfläche). Nach 5 falschen Passwörtern wird die Anmeldung für 2 Minuten gesperrt. Alle Aktionen landen im Protokoll (`audit.log` im Datenverzeichnis). Beim Update von Version 1.0 wird das bisherige Passwort automatisch zum Benutzer **admin**.
+
+## Konfigurationssicherung
+
+1. *Scan & Einstellungen* → **SSH-Zugangsdaten** eintragen (Benutzer mit Leserechten; bei Cisco ggf. Enable-Passwort). Mehrere Zugänge werden der Reihe nach probiert.
+2. *Konfigurationen* → Switch(es) auswählen → **Konfiguration speichern** → Speicherort wählen (Administratoren können über **Durchsuchen** jeden Ordner des Servers oder eine Netzwerkfreigabe wählen und als Standard merken).
+3. Je Switch entsteht ein Unterordner mit `<Switch>_<Datum-Uhrzeit>.cfg`. Es bleiben **höchstens 5 Versionen** – die sechste Sicherung ersetzt automatisch die älteste.
+4. **Versionen** zeigt alle Stände; **Vergleich mit Vorversion** zeigt die Änderungen zeilengenau.
+
+Der Gerätetyp wird aus den SNMP-Daten erkannt (Cisco IOS/NX-OS, Aruba AOS-CX/AOS-Switch, Comware, Huawei, Juniper, Arista, Dell, Extreme, Fortinet, Palo Alto, MikroTik u. a.) und kann je Switch überschrieben werden.
 
 ## Reports (Download über „Report herunterladen“)
 
@@ -57,15 +80,50 @@ Die Zuordnung **Gerät → Port** erfolgt über die MAC-Tabellen: Ports zu ander
 
 ---
 
-## Installation Windows Server
+## Installation direkt von GitHub
+
+Die Installationspakete werden bei jeder neuen Version automatisch von GitHub Actions gebaut und unter [Releases](https://github.com/aroth-bit/NetzwerkScanner/releases) veröffentlicht. Die folgenden Befehle laden immer die neueste Version, prüfen die SHA-256-Prüfsumme und installieren.
+
+**Windows Server** (PowerShell *als Administrator*):
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/aroth-bit/NetzwerkScanner/main/installer/windows/install-from-github.ps1)))
+```
+
+**Kali Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/aroth-bit/NetzwerkScanner/main/installer/linux/install-from-github.sh | sudo bash
+```
+
+**Privates Repository:** zusätzlich ein GitHub-Token mit Leserecht auf *Contents* angeben (Fine-grained Token, nur dieses Repository):
+```powershell
+$t = "github_pat_..."
+& ([scriptblock]::Create((irm -Headers @{Authorization="Bearer $t"} https://raw.githubusercontent.com/aroth-bit/NetzwerkScanner/main/installer/windows/install-from-github.ps1))) -Token $t
+```
+```bash
+export GITHUB_TOKEN=github_pat_...
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" https://raw.githubusercontent.com/aroth-bit/NetzwerkScanner/main/installer/linux/install-from-github.sh | sudo GITHUB_TOKEN="$GITHUB_TOKEN" bash
+```
+Das Token wird für den Update-Button gespeichert (nur für Administratoren lesbar).
+
+## Update
+
+*System & Update* → **Nach Updates suchen** → **Update installieren**. Der Scanner lädt das passende Paket aus dem neuesten GitHub-Release, prüft die Prüfsumme und installiert es; der Dienst startet danach neu. Einstellungen, Benutzer, Scans und Sicherungen bleiben erhalten.
+
+- Windows: die Installation läuft als eigene geplante Aufgabe (SYSTEM), Protokoll unter `C:\ProgramData\NetzwerkScanner\update\install.log`
+- Kali: die Installation läuft als eigene systemd-Unit, Protokoll unter `/var/lib/netscanner/update/install.log`
+- Hinter einem Proxy: Umgebungsvariable `HTTPS_PROXY` für den Dienst setzen
+
+Neue Version veröffentlichen: `__version__` in `netscanner/__init__.py` erhöhen, committen, dann `git tag v1.2.0 && git push origin v1.2.0` – GitHub Actions baut Setup, ZIP und Linux-Paket und erstellt das Release.
+
+## Installation Windows Server (manuell)
 
 ### Variante A: Setup-Assistent
-`NetzwerkScanner-Setup-1.0.0.exe` als Administrator ausführen. Optionen: Hintergrunddienst (Port 8080) und Firewall-Regel. Am Ende wird das Dashboard-Passwort abgefragt.
+`NetzwerkScanner-Setup-<version>.exe` als Administrator ausführen. Optionen: Hintergrunddienst (Port 8080) und Firewall-Regel. Am Ende wird der erste Administrator angelegt.
 
 ### Variante B: ZIP-Paket
-1. `NetzwerkScanner-1.0.0-Windows.zip` entpacken
+1. `NetzwerkScanner-<version>-Windows.zip` entpacken
 2. `Install.cmd` doppelklicken (fordert Administratorrechte an)
-3. Passwort für das Dashboard eingeben
+3. ersten Administrator (Benutzername + Passwort) anlegen
 4. Browser öffnet `http://localhost:8080/`
 
 Optionen: `Install.cmd -Port 9000`, `-NoService` (nur manuell starten), `-NoFirewall`, `-Silent`.
@@ -83,7 +141,7 @@ Ergebnis:
 ```powershell
 powershell -ExecutionPolicy Bypass -File installer\windows\build_windows.ps1
 ```
-Benötigt Python 3.10+. Erzeugt `dist\NetzwerkScanner-1.0.0-Windows.zip` und – wenn [Inno Setup 6](https://jrsoftware.org/isinfo.php) installiert ist – `dist\NetzwerkScanner-Setup-1.0.0.exe`.
+Benötigt Python 3.10+. Erzeugt `dist\NetzwerkScanner-<version>-Windows.zip` und – wenn [Inno Setup 6](https://jrsoftware.org/isinfo.php) installiert ist – `dist\NetzwerkScanner-Setup-<version>.exe`.
 
 ## Installation Kali Linux
 
@@ -118,7 +176,9 @@ venv/bin/python -m netscanner --port 8080 --demo
 
 ```
 netscanner [--host 0.0.0.0] [--port 8080] [--data VERZ] [--no-browser]
-netscanner --set-password            Dashboard-Passwort setzen
+netscanner --set-password [--user NAME]   Passwort setzen (legt den Benutzer als Administrator an, falls neu)
+netscanner --list-users                   Benutzer auflisten
+netscanner --configure-update OWNER/REPO  Update-Quelle festlegen (Token aus GITHUB_TOKEN)
 netscanner --scan --report out.xlsx  Scan ohne Web-UI (gespeicherte Einstellungen), Report schreiben
 netscanner --demo                    Beispiel-Scan importieren
 ```
@@ -126,7 +186,9 @@ Unter Windows: `"C:\Program Files\NetzwerkScanner\NetzwerkScanner.exe" --data C:
 
 ## Sicherheit
 
-- Das Dashboard ist passwortgeschützt. Solange kein Passwort gesetzt ist, ist es nur lokal am Server erreichbar (`/setup`).
+- Anmeldung mit Benutzername und Passwort, Rollen Administrator/Benutzer/Audit. Solange kein Administrator existiert, ist das Dashboard nur lokal am Server erreichbar (`/setup`).
+- SSH-Zugangsdaten und GitHub-Token liegen wie die SNMP-Daten nur im geschützten Datenverzeichnis und werden im Browser maskiert.
+- Gesicherte Konfigurationen enthalten u. a. Passwort-Hashes und Communities – Speicherort entsprechend schützen.
 - SNMP-Zugangsdaten liegen in `config.json` im Datenverzeichnis, das nur für Administratoren/root lesbar ist; im Browser werden sie maskiert angezeigt.
 - Der Scanner liest nur (SNMP GET/WALK, Ping, TCP-Connect, DNS, NetBIOS) – es werden keine Konfigurationen verändert.
 - Nur in Netzen einsetzen, für die eine Freigabe vorliegt.
@@ -149,10 +211,14 @@ netscanner/            Python-Paket (Scanner, Web-Dashboard, Reports)
   collector.py         SNMP-Auslesen der Switches (IF-MIB, BRIDGE/Q-BRIDGE, LLDP, CDP, ARP, LAG, Entity)
   discovery.py         Ping, TCP, nmap, ARP, DNS, NetBIOS
   correlate.py         Zuordnung Gerät → Port, Uplinks, Topologie, VLANs
+  configbackup.py      Konfigurationssicherung per SSH (Netmiko), 5 Versionen je Switch
+  users.py             Benutzer, Rollen, Protokoll
+  updater.py           Update aus GitHub-Releases
   engine.py            Scan-Ablauf
   reports.py           Excel / PDF / CSV
   web.py               Dashboard + REST-API
-installer/windows/     PyInstaller-Spec, Inno-Setup-Skript, Install.ps1, build_windows.ps1
-installer/linux/       install_kali.sh, uninstall.sh
-tests/                 SNMP-Simulator-Daten (snmpsim) und Demo-Generator
+installer/windows/     PyInstaller-Spec, Inno-Setup-Skript, Install.ps1, install-from-github.ps1, build_windows.ps1
+installer/linux/       install_kali.sh, install-from-github.sh, uninstall.sh, build_linux_package.py
+.github/workflows/     release.yml – baut und veröffentlicht Releases bei Versions-Tags
+tests/                 SNMP- und SSH-Simulator, Demo-Generator, test_web.py (Rollen/Rechte/Sicherung)
 ```

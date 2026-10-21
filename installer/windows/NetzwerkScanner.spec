@@ -12,7 +12,7 @@ datas = [
 ]
 binaries = []
 hiddenimports = []
-for pkg in ("pysnmp", "pyasn1"):
+for pkg in ("pysnmp", "pyasn1", "netmiko", "ntc_templates", "textfsm", "paramiko"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
