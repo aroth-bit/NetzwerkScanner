@@ -4,17 +4,20 @@
 #   sudo ./installer/linux/install_kali.sh            # Installation + systemd-Dienst auf Port 8080
 #   sudo ./installer/linux/install_kali.sh --port 9000
 #   sudo ./installer/linux/install_kali.sh --no-service
+#   sudo ./installer/linux/install_kali.sh --update     # Update: Port/Dienst bleiben, keine Rueckfragen
 #
 # Installiert nach /opt/netscanner, Daten unter /var/lib/netscanner, Befehl: netscanner
 set -euo pipefail
 
 PORT=8080
 SERVICE=1
+UPDATE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) PORT="$2"; shift 2 ;;
     --no-service) SERVICE=0; shift ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    --update) UPDATE=1; shift ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "Unbekannte Option: $1"; exit 1 ;;
   esac
 done
@@ -28,8 +31,19 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP=/opt/netscanner
 DATA=/var/lib/netscanner
 
+if [[ $UPDATE -eq 1 ]]; then
+  # vorhandene Einstellungen uebernehmen
+  if [[ -f /etc/systemd/system/netscanner.service ]]; then
+    P=$(grep -oP -- '--port \K[0-9]+' /etc/systemd/system/netscanner.service || true)
+    PORT=${P:-$PORT}
+  else
+    SERVICE=0
+  fi
+  echo "==> Update auf Version $(grep -oP '__version__ = "\K[^"]+' "$SRC/netscanner/__init__.py") (Port $PORT)"
+fi
+
 echo "==> Systempakete (python3, venv, nmap, ping)"
-if command -v apt-get >/dev/null; then
+if [[ $UPDATE -eq 0 ]] && command -v apt-get >/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq || true
   apt-get install -y -qq python3 python3-venv python3-pip nmap iputils-ping iproute2 >/dev/null
@@ -65,12 +79,12 @@ cd "$APP" && exec "$APP/venv/bin/python" -m netscanner --data "$DATA" "\$@"
 EOF
 chmod 755 /usr/local/bin/netscanner
 
-if ! grep -q password_hash "$DATA/auth.json" 2>/dev/null; then
-  if [[ -t 0 ]]; then
-    echo "==> Passwort fuer das Dashboard festlegen"
+if ! grep -qs password_hash "$DATA/users.json" "$DATA/auth.json"; then
+  if [[ -t 0 && $UPDATE -eq 0 ]]; then
+    echo "==> Ersten Administrator fuer das Dashboard anlegen"
     /usr/local/bin/netscanner --set-password
   else
-    echo "Hinweis: Passwort spaeter mit 'sudo netscanner --set-password' setzen."
+    echo "Hinweis: Administrator spaeter mit 'sudo netscanner --set-password' anlegen."
   fi
 fi
 
@@ -96,7 +110,8 @@ User=root
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable --now netscanner.service
+  systemctl enable netscanner.service
+  systemctl restart netscanner.service
   sleep 2
   systemctl --no-pager --lines=3 status netscanner.service || true
 fi

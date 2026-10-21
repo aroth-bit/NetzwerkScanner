@@ -2,7 +2,9 @@
 ; Kompilieren: build_windows.ps1 (ruft ISCC.exe auf) oder in Inno Setup 6 oeffnen und F9.
 ; Erwartet den PyInstaller-Build unter ..\..\dist\NetzwerkScanner
 
-#define AppVersion "1.0.0"
+#ifndef AppVersion
+  #define AppVersion "0.0.0"
+#endif
 
 [Setup]
 AppId={{6E8B2C1A-4F3D-4B7A-9C55-2D1E0A9B7F31}

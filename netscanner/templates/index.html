@@ -26,7 +26,13 @@
       </div>
     </div>
     <button id="themeBtn" class="sm" title="Hell/Dunkel">&#9681;</button>
-    <a class="btn sm" href="/logout">Abmelden</a>
+    <div class="dropdown" id="userDd">
+      <button class="sm" id="userBtn">&#128100; <span id="userName"></span> <span class="pill gray" id="userRole"></span></button>
+      <div class="menu">
+        <a href="#" id="pwChange">Passwort aendern</a>
+        <a href="/logout">Abmelden</a>
+      </div>
+    </div>
   </div>
   <nav class="tabs" id="tabs">
     <button data-tab="overview" class="active">Uebersicht</button>
@@ -36,7 +42,11 @@
     <button data-tab="vlans">VLANs &amp; Netze</button>
     <button data-tab="plan">Umzugsplanung</button>
     <button data-tab="compare">Vergleich</button>
+    <button data-tab="configs">Konfigurationen</button>
     <button data-tab="scan">Scan &amp; Einstellungen</button>
+    <button data-tab="users" data-perm="users">Benutzer</button>
+    <button data-tab="audit" data-perm="audit_log">Protokoll</button>
+    <button data-tab="system" data-perm="update">System &amp; Update</button>
   </nav>
 </header>
 
@@ -159,6 +169,72 @@
     <div class="tablewrap" style="max-height:calc(100vh - 360px)"><table class="data" id="cmpTable"></table></div>
   </section>
 
+  <!-- =============================================================== Konfigurationen -->
+  <section class="tab" id="tab-configs">
+    <div class="card">
+      <div class="card-head">
+        <h3>Switch-Konfigurationen sichern</h3>
+        <span class="muted small">Pro Switch werden hoechstens <b id="maxVers">5</b> Versionen aufbewahrt - eine neue Sicherung ersetzt die aelteste.</span>
+      </div>
+      <div class="row">
+        <button class="primary" id="bkSelected" data-perm="backup_run">&#128190; Konfiguration speichern (Auswahl)</button>
+        <button id="bkAll" data-perm="backup_run">Alle Switches sichern</button>
+        <span class="muted small">Standard-Speicherort: <span class="mono" id="bkDefault"></span></span>
+      </div>
+      <div id="bkWarn" class="small warn" style="margin-top:8px"></div>
+      <div id="bkJob" style="display:none;margin-top:10px">
+        <div class="progress"><div id="bkBar"></div></div>
+        <div class="log" id="bkLog" style="height:140px"></div>
+      </div>
+    </div>
+    <div class="tablewrap"><table class="data" id="bkTable"></table></div>
+    <div class="card" id="bkDetail" style="display:none;margin-top:16px"></div>
+  </section>
+
+  <!-- =============================================================== Benutzer -->
+  <section class="tab" id="tab-users">
+    <div class="card">
+      <div class="card-head"><h3>Benutzerverwaltung</h3><div style="flex:1"></div><button class="primary" id="userAdd">+ Benutzer anlegen</button></div>
+      <div class="grid g2 small" style="margin-bottom:10px">
+        <div><b>Administrator</b>: alle Rechte - Einstellungen, Zugangsdaten, Benutzer, Updates, Loeschen, Speicherorte.<br>
+        <b>Benutzer</b>: alles ansehen, Scans starten, Umzugsplanung bearbeiten, Konfigurationen sichern (Standard-Speicherorte), Reports.</div>
+        <div><b>Audit</b>: nur lesen - Ergebnisse, Reports, gesicherte Konfigurationen und das Protokoll aller Aktionen; keine Aenderungen.</div>
+      </div>
+      <div class="tablewrap"><table class="data" id="userTable"></table></div>
+    </div>
+  </section>
+
+  <!-- =============================================================== Protokoll -->
+  <section class="tab" id="tab-audit">
+    <div class="card" style="padding:12px">
+      <div class="row"><h3 style="margin:0">Protokoll</h3><input type="text" id="auditSearch" placeholder="Filtern: Benutzer, Aktion, Switch ..." style="min-width:300px"><button class="sm" id="auditReload">Aktualisieren</button><a class="btn sm" href="#" id="auditCsv">Als CSV</a><span class="muted small" id="auditCount"></span></div>
+    </div>
+    <div class="tablewrap" style="max-height:calc(100vh - 230px)"><table class="data" id="auditTable"></table></div>
+  </section>
+
+  <!-- =============================================================== System -->
+  <section class="tab" id="tab-system">
+    <div class="grid g2">
+      <div class="card">
+        <h3>Version &amp; Update</h3>
+        <dl class="kv"><dt>Installiert</dt><dd><b id="sysVersion"></b></dd><dt>Installationsart</dt><dd id="sysMode"></dd>
+          <dt>Neueste Version</dt><dd id="sysLatest">-</dd></dl>
+        <div class="row" style="margin-top:12px">
+          <button id="updCheck">Nach Updates suchen</button>
+          <button class="primary" id="updInstall" style="display:none">&#11015; Update installieren</button>
+        </div>
+        <div id="updMsg" class="small" style="margin-top:10px"></div>
+        <details id="updNotesBox" style="display:none;margin-top:10px"><summary>Versionshinweise</summary><pre id="updNotes" class="small" style="white-space:pre-wrap"></pre></details>
+      </div>
+      <div class="card">
+        <h3>Update-Quelle (GitHub)</h3>
+        <div class="field"><label>Repository</label><input type="text" id="updRepo" style="width:100%" placeholder="besitzer/name"></div>
+        <div class="field"><label>GitHub-Token <span class="muted small">(nur fuer private Repositories, Leserecht auf Inhalte)</span></label><input type="password" id="updToken" style="width:100%" autocomplete="off"></div>
+        <button id="updSave">Speichern</button>
+      </div>
+    </div>
+  </section>
+
   <!-- =============================================================== Scan -->
   <section class="tab" id="tab-scan">
     <div class="grid g2">
@@ -205,6 +281,12 @@
             <div class="cred muted small"><span>Name</span><span>Version</span><span>Community / Benutzer</span><span>Auth-Passwort</span><span>Auth</span><span>Priv-Passwort</span><span>Priv</span><span></span></div>
             <div id="creds"></div>
             <div class="row"><button class="sm" id="addV2">+ SNMP v2c</button><button class="sm" id="addV3">+ SNMP v3</button></div>
+          </div>
+          <div class="field">
+            <label>SSH-Zugangsdaten fuer die Konfigurationssicherung <span class="muted small">(Leserechte genuegen; Cisco: Enable-Passwort)</span></label>
+            <div class="cred muted small" style="grid-template-columns:1.2fr 1fr 1fr 1fr .5fr auto"><span>Name</span><span>Benutzer</span><span>Passwort</span><span>Enable-Passwort</span><span>Port</span><span></span></div>
+            <div id="sshCreds"></div>
+            <button class="sm" id="addSsh">+ SSH-Zugang</button>
           </div>
           <div class="field">
             <label>VLAN-Definitionen <span class="muted small">(optional - ergaenzt die per SNMP gefundenen)</span></label>

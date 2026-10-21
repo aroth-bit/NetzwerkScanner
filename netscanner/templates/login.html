@@ -13,15 +13,17 @@
     <div class="brand" style="margin-bottom:14px"><img src="{{ url_for('static', filename='favicon.svg') }}" width="28" alt=""> NetzwerkScanner</div>
     {% if setup %}
       <h2>Ersteinrichtung</h2>
-      <p class="muted small">Legen Sie ein Passwort fuer das Dashboard fest. Erst danach ist der Zugriff aus dem Netzwerk moeglich.</p>
+      <p class="muted small">Legen Sie den ersten Administrator an. Erst danach ist der Zugriff aus dem Netzwerk moeglich. Weitere Benutzer (Administrator, Benutzer, Audit) legen Sie danach im Dashboard an.</p>
       {% if error %}<div class="err">{{ error }}</div>{% endif %}
-      <input type="password" name="password" placeholder="Neues Passwort (min. 8 Zeichen)" autofocus required minlength="8">
-      <input type="password" name="password2" placeholder="Passwort wiederholen" required minlength="8">
-      <button class="primary" type="submit" style="width:100%;justify-content:center">Passwort speichern</button>
+      <input type="text" name="username" placeholder="Benutzername" value="admin" required autocomplete="username">
+      <input type="password" name="password" placeholder="Passwort (min. 8 Zeichen)" autofocus required minlength="8" autocomplete="new-password">
+      <input type="password" name="password2" placeholder="Passwort wiederholen" required minlength="8" autocomplete="new-password">
+      <button class="primary" type="submit" style="width:100%;justify-content:center">Administrator anlegen</button>
     {% else %}
       <h2>Anmelden</h2>
       {% if error %}<div class="err">{{ error }}</div>{% endif %}
-      <input type="password" name="password" placeholder="Passwort" autofocus required>
+      <input type="text" name="username" placeholder="Benutzername" autofocus required autocomplete="username">
+      <input type="password" name="password" placeholder="Passwort" required autocomplete="current-password">
       <button class="primary" type="submit" style="width:100%;justify-content:center">Anmelden</button>
     {% endif %}
     <p class="muted small" style="margin-top:14px">Version {{ version }}</p>

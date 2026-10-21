@@ -13,6 +13,7 @@
   .\Install.ps1
   .\Install.ps1 -Port 8443 -NoFirewall
   .\Install.ps1 -Silent -NoService
+  .\Install.ps1 -Update -Silent     (wird vom Update-Button im Dashboard verwendet)
 #>
 [CmdletBinding()]
 param(
@@ -21,12 +22,12 @@ param(
     [switch]$NoService,
     [switch]$NoFirewall,
     [switch]$Silent,
-    [switch]$FromInno
+    [switch]$FromInno,
+    [switch]$Update
 )
 
 $ErrorActionPreference = "Stop"
 $AppName = "NetzwerkScanner"
-$Version = "1.0.0"
 $TaskName = "NetzwerkScanner"
 $DataDir = Join-Path $env:ProgramData $AppName
 
@@ -41,11 +42,21 @@ if (-not $isAdmin) {
     if ($NoService) { $args2 += "-NoService" }
     if ($NoFirewall) { $args2 += "-NoFirewall" }
     if ($Silent) { $args2 += "-Silent" }
+    if ($Update) { $args2 += "-Update" }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $args2
     exit 0
 }
 
 $exe = Join-Path $InstallDir "NetzwerkScanner.exe"
+if ($Update) {
+    # Update: bisherige Einstellungen beibehalten (Dienst nur, wenn er schon eingerichtet war)
+    $Silent = $true
+    $hadTask = [bool](Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)
+    if (-not $hadTask) { $NoService = $true }
+    $NoFirewall = -not [bool](Get-NetFirewallRule -DisplayName "NetzwerkScanner Dashboard" -ErrorAction SilentlyContinue)
+    New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "update") | Out-Null
+    try { Start-Transcript -Path (Join-Path $DataDir "update\install-transcript.log") -Force | Out-Null } catch { }
+}
 
 # ------------------------------------------------------------ laufende Instanz stoppen
 Write-Step "Vorhandene Installation pruefen"
@@ -68,6 +79,8 @@ if (-not $FromInno) {
     Copy-Item (Join-Path $PSScriptRoot "Uninstall.ps1") $InstallDir -Force
     Copy-Item $PSCommandPath (Join-Path $InstallDir "Install.ps1") -Force -ErrorAction SilentlyContinue
 }
+$Version = (& $exe --version 2>$null | Select-Object -Last 1)
+if (-not $Version) { $Version = "?" }
 
 # ------------------------------------------------------------ Datenverzeichnis
 Write-Step "Datenverzeichnis $DataDir (Zugriff nur Administratoren/SYSTEM)"
@@ -124,14 +137,19 @@ if (-not $FromInno) {
 }
 
 # ------------------------------------------------------------ Passwort
-$auth = Join-Path $DataDir "auth.json"
-$hasPw = (Test-Path $auth) -and ((Get-Content $auth -Raw) -match "password_hash")
+$usersFile = Join-Path $DataDir "users.json"
+$authFile = Join-Path $DataDir "auth.json"
+$hasPw = ((Test-Path $usersFile) -and ((Get-Content $usersFile -Raw) -match "password_hash")) -or
+         ((Test-Path $authFile) -and ((Get-Content $authFile -Raw) -match "password_hash"))
 if (-not $hasPw -and -not $Silent) {
-    Write-Step "Passwort fuer das Dashboard festlegen"
+    Write-Step "Ersten Administrator fuer das Dashboard anlegen"
     & $exe --set-password --data $DataDir
 }
 
 # ------------------------------------------------------------ Start
+if ($Update) {
+    Unregister-ScheduledTask -TaskName "NetzwerkScanner-Update" -Confirm:$false -ErrorAction SilentlyContinue
+}
 if (-not $NoService) {
     Write-Step "Starte Hintergrunddienst"
     Start-ScheduledTask -TaskName $TaskName
@@ -144,7 +162,8 @@ Write-Host "  Programm : $InstallDir"
 Write-Host "  Daten    : $DataDir"
 Write-Host "  Dashboard: http://localhost:$Port/  (aus dem Netz: http://$($env:COMPUTERNAME):$Port/)"
 if (-not $hasPw -and $Silent) {
-    Write-Host "  Passwort noch nicht gesetzt: http://localhost:$Port/setup direkt auf dem Server aufrufen." -ForegroundColor Yellow
+    Write-Host "  Noch kein Administrator: http://localhost:$Port/setup direkt auf dem Server aufrufen." -ForegroundColor Yellow
 }
 if (-not $NoService -and -not $Silent) { Start-Process "http://localhost:$Port/" }
+if ($Update) { try { Stop-Transcript | Out-Null } catch { } }
 if (-not $Silent -and -not $FromInno) { Read-Host "Enter zum Beenden" | Out-Null }

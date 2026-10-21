@@ -1,7 +1,8 @@
 /* NetzwerkScanner Dashboard */
 "use strict";
 
-const S = { scans: [], scan: null, plan: {}, dev: {}, sw: {}, cfg: null, topo: null, logPos: 0, poll: null };
+const S = { scans: [], scan: null, plan: {}, dev: {}, sw: {}, cfg: null, topo: null, logPos: 0, poll: null, me: null };
+function can(p) { return !!(S.me && S.me.permissions.includes(p)); }
 
 const STATUS = {
   "belegt": "Belegt", "uplink": "Uplink (Switch)", "nachbar": "Nachbar (LLDP/CDP)",
@@ -32,6 +33,7 @@ function planKey(swName, portName) { return swName + "|" + portName; }
 function vlanColor(v) { return v ? VLAN_COLORS[Math.abs(+v) % VLAN_COLORS.length] : "#8a94a6"; }
 
 async function api(path, opts = {}) {
+  opts.headers = Object.assign({ "X-NS": "1" }, opts.headers || {});
   if (opts.body && typeof opts.body !== "string" && !(opts.body instanceof FormData)) {
     opts.body = JSON.stringify(opts.body);
     opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
@@ -85,6 +87,10 @@ function showTab(name) {
   if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
   if (name === "topology") renderTopology();
   if (name === "scan") loadScanTab();
+  if (name === "configs") renderConfigs();
+  if (name === "users") loadUsers();
+  if (name === "audit") loadAudit();
+  if (name === "system") loadSystem();
 }
 $$("#tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
 (function theme() {
@@ -558,7 +564,10 @@ function renderPlan() {
     { key: "t4", label: "Bemerkung", render: r => inp(r, "note", 160) },
     { key: "done", label: "Erledigt", render: r => `<input type="checkbox" data-key="${esc(r.key)}" data-f="done" ${(S.plan[r.key] || {}).done ? "checked" : ""}>`, sort: r => (S.plan[r.key] || {}).done ? 1 : 0 },
   ], rows, { limit: 5000 });
-  $$("#planTable input[data-key]").forEach(el => el.onchange = () => savePlan(el.dataset.key, el.dataset.f, el.type === "checkbox" ? el.checked : el.value));
+  $$("#planTable input[data-key]").forEach(el => {
+    el.disabled = !can("plan_edit");
+    el.onchange = () => savePlan(el.dataset.key, el.dataset.f, el.type === "checkbox" ? el.checked : el.value);
+  });
   const done = rows.filter(r => (S.plan[r.key] || {}).done).length;
   $("#planProgress").textContent = `${done} von ${rows.length} Ports erledigt`;
   $("#planBar").style.width = (rows.length ? 100 * done / rows.length : 0) + "%";
@@ -656,6 +665,11 @@ function renderCfg() {
   $("#cfgExclude").value = (c.exclude || []).join("\n");
   $("#creds").innerHTML = (c.credentials || []).map((cr, i) => credRow(cr, i)).join("");
   $$("#creds .del").forEach(b => b.onclick = () => { readCfg(); S.cfg.credentials.splice(+b.dataset.i, 1); renderCfg(); });
+  $("#sshCreds").innerHTML = (c.ssh_credentials || []).map((cr, i) => `<div class="cred ssh" data-i="${i}" style="grid-template-columns:1.2fr 1fr 1fr 1fr .5fr auto">
+      <input type="text" class="sname" value="${esc(cr.name || "")}" placeholder="Name"><input type="text" class="suser" value="${esc(cr.username || "")}" placeholder="Benutzer" autocomplete="off">
+      <input type="password" class="spass" value="${esc(cr.password || "")}" placeholder="Passwort" autocomplete="new-password"><input type="password" class="ssec" value="${esc(cr.secret || "")}" placeholder="Enable (optional)" autocomplete="new-password">
+      <input type="number" class="sport" value="${esc(cr.port || 22)}" min="1" max="65535"><button class="sm danger sdel" data-i="${i}">&#10005;</button></div>`).join("");
+  $$("#sshCreds .sdel").forEach(b => b.onclick = () => { readCfg(); S.cfg.ssh_credentials.splice(+b.dataset.i, 1); renderCfg(); });
   $("#vlanDefs").innerHTML = (c.vlans || []).map((v, i) => `<div class="vlanrow" data-i="${i}">
       <input type="number" class="vid" value="${esc(v.id)}" placeholder="ID" min="1" max="4094"><input type="text" class="vname" value="${esc(v.name || "")}" placeholder="Name">
       <input type="text" class="vsub" value="${esc(v.subnet || "")}" placeholder="Subnetz (10.0.10.0/24)"><button class="sm danger vdel" data-i="${i}">&#10005;</button></div>`).join("");
@@ -663,6 +677,9 @@ function renderCfg() {
   $("#opts").innerHTML = OPTS.map(([k, t, l]) => t === "bool"
     ? `<label class="chk"><input type="checkbox" data-opt="${k}" ${c.options[k] ? "checked" : ""}> ${esc(l)}</label>`
     : `<label class="chk" style="align-items:center"><input type="number" data-opt="${k}" value="${esc(c.options[k])}" style="width:80px" step="any"> ${esc(l)}</label>`).join("");
+  if (!can("settings")) {
+    $$("#tab-scan .grid > div:last-child input, #tab-scan .grid > div:last-child textarea, #tab-scan .grid > div:last-child select, #tab-scan .grid > div:last-child button").forEach(el => el.disabled = true);
+  }
 }
 function credRow(cr, i) {
   const v3 = String(cr.version) === "3";
@@ -688,6 +705,8 @@ function readCfg() {
     else o.community = $(".cuser", r).value;
     return o;
   });
+  c.ssh_credentials = $$("#sshCreds .ssh").map(r => ({ name: $(".sname", r).value.trim() || "SSH", username: $(".suser", r).value.trim(),
+    password: $(".spass", r).value, secret: $(".ssec", r).value, port: parseInt($(".sport", r).value, 10) || 22 }));
   c.vlans = $$("#vlanDefs .vlanrow").map(r => ({ id: parseInt($(".vid", r).value, 10), name: $(".vname", r).value.trim(), subnet: $(".vsub", r).value.trim() })).filter(v => v.id);
   $$("#opts [data-opt]").forEach(el => c.options[el.dataset.opt] = el.type === "checkbox" ? el.checked : Number(el.value));
   return c;
@@ -695,6 +714,7 @@ function readCfg() {
 $("#creds").addEventListener("change", e => { if (e.target.classList.contains("cver")) { readCfg(); renderCfg(); } });
 $("#addV2").onclick = () => { readCfg(); S.cfg.credentials.push({ name: "v2c " + (S.cfg.credentials.length + 1), version: "2c", community: "" }); renderCfg(); };
 $("#addV3").onclick = () => { readCfg(); S.cfg.credentials.push({ name: "v3 " + (S.cfg.credentials.length + 1), version: "3", user: "", auth_protocol: "sha", priv_protocol: "aes" }); renderCfg(); };
+$("#addSsh").onclick = () => { readCfg(); S.cfg.ssh_credentials = S.cfg.ssh_credentials || []; S.cfg.ssh_credentials.push({ name: "SSH " + (S.cfg.ssh_credentials.length + 1), username: "", port: 22 }); renderCfg(); };
 $("#addVlan").onclick = () => { readCfg(); S.cfg.vlans.push({ id: "", name: "", subnet: "" }); renderCfg(); };
 $("#addLocal").onclick = (e) => { e.preventDefault(); const cur = $("#cfgSubnets").value.trim(); const add = (S.localNets || []).filter(n => !cur.includes(n)); $("#cfgSubnets").value = (cur ? cur + "\n" : "") + add.join("\n"); };
 async function saveCfg() {
@@ -713,7 +733,7 @@ $("#testBtn").onclick = async () => {
 };
 $("#startBtn").onclick = async () => {
   try {
-    await saveCfg();
+    if (can("settings")) await saveCfg();
     if (!S.cfg.snmp_devices.length && !confirm("Es sind keine Switches (SNMP) eingetragen. Ohne Switch-Daten koennen Geraete keinem Port zugeordnet werden. Trotzdem nur Ping-Scan starten?")) return;
     $("#scanLog").textContent = ""; S.logPos = 0;
     await api("/api/scan/start", { method: "POST", body: { name: $("#scanName").value.trim() } });
@@ -743,7 +763,7 @@ function renderScanTable() {
     { key: "name", label: "Name", render: s => `<b>${esc(s.name)}</b>` },
     { key: "finished", label: "Datum", render: s => esc(fmtDate(s.finished || s.started)) },
     { key: "st", label: "Switches / Geraete", render: s => s.stats ? `${s.stats.switches} / ${s.stats.devices}` : "" },
-    { key: "act", label: "", render: s => `<button class="sm" data-a="show" data-id="${esc(s.id)}">Anzeigen</button> <button class="sm" data-a="ren" data-id="${esc(s.id)}">Umbenennen</button> <button class="sm danger" data-a="del" data-id="${esc(s.id)}">Loeschen</button>` },
+    { key: "act", label: "", render: s => `<button class="sm" data-a="show" data-id="${esc(s.id)}">Anzeigen</button>` + (can("scan_manage") ? ` <button class="sm" data-a="ren" data-id="${esc(s.id)}">Umbenennen</button> <button class="sm danger" data-a="del" data-id="${esc(s.id)}">Loeschen</button>` : "") },
   ], S.scans);
   $$("#scanTable button[data-a]").forEach(b => b.onclick = async () => {
     const id = b.dataset.id;
@@ -760,8 +780,289 @@ $("#importFile").onchange = async (e) => {
   e.target.value = "";
 };
 
+// ------------------------------------------------------------------ Rechte & Benutzer-Menue
+function applyPerms() {
+  $$("[data-perm]").forEach(el => { el.style.display = can(el.dataset.perm) ? "" : "none"; });
+  $("#userName").textContent = S.me.full_name || S.me.username;
+  $("#userRole").textContent = S.me.role_label;
+  $$("#noScan button").forEach(b => { if (b.textContent.includes("Demo")) b.style.display = can("scan_manage") ? "" : "none"; });
+  if (!can("scan")) { $("#startBtn").style.display = "none"; $("#cancelBtn").style.display = "none"; }
+  if (!can("scan_manage")) $("#importFile").closest("label").style.display = "none";
+  if (!can("plan_edit")) $$("#planBulk1,#planBulk2,#planBulkSwitch").forEach(el => el.style.display = "none");
+}
+$("#userBtn").onclick = (e) => { e.stopPropagation(); $("#userDd").classList.toggle("open"); };
+document.addEventListener("click", () => $("#userDd").classList.remove("open"));
+$("#pwChange").onclick = (e) => {
+  e.preventDefault();
+  showModal(`<h2>Passwort aendern</h2>
+    <div class="field"><label>Aktuelles Passwort</label><input type="password" id="pwOld" style="width:100%" autocomplete="current-password"></div>
+    <div class="field"><label>Neues Passwort (min. 8 Zeichen)</label><input type="password" id="pwNew" style="width:100%" autocomplete="new-password"></div>
+    <div class="field"><label>Wiederholen</label><input type="password" id="pwNew2" style="width:100%" autocomplete="new-password"></div>
+    <button class="primary" id="pwSave">Speichern</button> <span id="pwMsg" class="small"></span>`);
+  $("#pwSave").onclick = async () => {
+    if ($("#pwNew").value !== $("#pwNew2").value) { $("#pwMsg").innerHTML = '<span class="danger">Passwoerter stimmen nicht ueberein</span>'; return; }
+    try { await api("/api/me/password", { method: "POST", body: { old: $("#pwOld").value, new: $("#pwNew").value } }); hideModal(); toast("Passwort geaendert"); }
+    catch (err) { $("#pwMsg").innerHTML = `<span class="danger">${esc(err.message)}</span>`; }
+  };
+};
+
+// ------------------------------------------------------------------ Konfigurationssicherung
+async function renderConfigs() {
+  const scanId = S.scan ? S.scan.id : "";
+  let ov;
+  try { ov = await api("/api/backups/overview?scan=" + encodeURIComponent(scanId)); } catch (e) { toast(e.message); return; }
+  S.bk = ov;
+  $("#maxVers").textContent = ov.max_versions;
+  $("#bkDefault").textContent = ov.default_location;
+  $("#bkWarn").textContent = !ov.switches.length ? "Im ausgewaehlten Scan sind keine Switches enthalten." :
+    (!ov.ssh_configured ? "Noch keine SSH-Zugangsdaten hinterlegt (Scan & Einstellungen > SSH-Zugangsdaten)." : "");
+  const typeOpts = (cur) => Object.entries(ov.device_types).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${esc(v)}</option>`).join("");
+  sortableTable($("#bkTable"), [
+    { key: "sel", label: "", render: s => `<input type="checkbox" class="bksel" value="${esc(s.id)}">`, sort: s => s.name },
+    { key: "name", label: "Switch", render: s => `<b>${esc(s.name)}</b>` },
+    { key: "ip", label: "IP", cls: "mono", sort: s => ipNum(s.ip) },
+    { key: "model", label: "Modell", render: s => `${esc(s.vendor)} <span class="muted small">${esc(s.model)}</span>` },
+    { key: "device_type", label: "Geraetetyp (SSH)", render: s => `<select class="bktype" data-ip="${esc(s.ip)}" ${can("settings") ? "" : "disabled"} title="Automatisch erkannt: ${esc(ov.device_types[s.guessed_type] || s.guessed_type)}">${typeOpts(s.device_type)}</select>` },
+    { key: "versions", label: "Versionen", render: s => `<span class="pill ${s.versions.length ? "green" : "gray"}">${s.versions.length} / ${ov.max_versions}</span>`, sort: s => s.versions.length },
+    { key: "last", label: "Letzte Sicherung", render: s => s.versions[0] ? `${esc(fmtDate(s.versions[0].time))} <span class="muted small">${esc(s.versions[0].user)}</span>${s.versions[0].changed === false ? ' <span class="pill gray">unveraendert</span>' : s.versions[0].changed ? ' <span class="pill yellow">geaendert</span>' : ""}` : '<span class="muted">noch nie</span>', sort: s => s.versions[0] ? s.versions[0].ts : "" },
+    { key: "act", label: "", render: s => (can("backup_run") ? `<button class="sm primary" data-bk="save" data-id="${esc(s.id)}">&#128190; Speichern</button> ` : "") + `<button class="sm" data-bk="show" data-id="${esc(s.id)}" ${s.versions.length ? "" : "disabled"}>Versionen</button>` },
+  ], ov.switches);
+  $$("#bkTable .bktype").forEach(el => el.onchange = async () => {
+    try { await api("/api/backups/device-type", { method: "POST", body: { ip: el.dataset.ip, device_type: el.value } }); toast("Geraetetyp gespeichert"); }
+    catch (e) { toast(e.message); }
+  });
+  $$("#bkTable button[data-bk]").forEach(b => b.onclick = () => {
+    const s = ov.switches.find(x => x.id === b.dataset.id);
+    if (b.dataset.bk === "save") saveDialog([s]); else showVersions(s);
+  });
+  pollBackup();
+}
+$("#bkSelected").onclick = () => {
+  const ids = $$("#bkTable .bksel:checked").map(x => x.value);
+  if (!ids.length) { toast("Bitte mindestens einen Switch auswaehlen"); return; }
+  saveDialog(S.bk.switches.filter(s => ids.includes(s.id)));
+};
+$("#bkAll").onclick = () => S.bk && S.bk.switches.length && saveDialog(S.bk.switches);
+
+function saveDialog(list) {
+  const ov = S.bk;
+  const admin = can("backup_location");
+  showModal(`<h2>Konfiguration speichern</h2>
+    <p>${list.length === 1 ? `Switch <b>${esc(list[0].name)}</b> (${esc(list[0].ip)})` : `<b>${list.length} Switches</b>: ${esc(list.map(s => s.name).join(", "))}`}</p>
+    <div class="field"><label>Speicherort</label>
+      <select id="bkLoc" style="width:100%">${ov.locations.map(l => `<option ${l === ov.default_location ? "selected" : ""}>${esc(l)}</option>`).join("")}${admin ? '<option value="__new">Anderer Ordner ...</option>' : ""}</select>
+      <div id="bkNew" style="display:none;margin-top:8px">
+        <div class="row"><input type="text" id="bkPath" placeholder="z.B. D:\\Backups\\Switches oder \\\\server\\freigabe\\switches" style="flex:1"><button class="sm" id="bkBrowse">Durchsuchen ...</button></div>
+        <div id="bkBrowser" style="display:none;margin-top:8px"></div>
+      </div>
+      <div class="hint">Je Switch wird ein Unterordner angelegt. Pro Switch bleiben hoechstens ${ov.max_versions} Versionen erhalten - die aelteste wird ersetzt.</div>
+    </div>
+    ${admin ? '<label class="chk"><input type="checkbox" id="bkRemember"> als Standard-Speicherort merken</label>' : ""}
+    <button class="primary" id="bkGo">Jetzt sichern</button> <span id="bkMsg" class="small"></span>`);
+  $("#bkLoc").onchange = () => { $("#bkNew").style.display = $("#bkLoc").value === "__new" ? "" : "none"; };
+  if (admin) $("#bkBrowse").onclick = () => browseDir($("#bkPath").value.trim());
+  $("#bkGo").onclick = async () => {
+    const loc = $("#bkLoc").value === "__new" ? $("#bkPath").value.trim() : $("#bkLoc").value;
+    if (!loc) { $("#bkMsg").innerHTML = '<span class="danger">Bitte Speicherort angeben</span>'; return; }
+    try {
+      await api("/api/backups/run", { method: "POST", body: { switch_ids: list.map(s => s.id), scan_id: S.scan && S.scan.id, location: loc, remember: !!($("#bkRemember") && $("#bkRemember").checked) } });
+      hideModal(); toast("Sicherung gestartet"); pollBackup(true);
+    } catch (e) { $("#bkMsg").innerHTML = `<span class="danger">${esc(e.message)}</span>`; }
+  };
+}
+async function browseDir(path) {
+  let r;
+  try { r = await api("/api/fs/browse?path=" + encodeURIComponent(path || "")); } catch (e) { toast(e.message); return; }
+  const box = $("#bkBrowser"); box.style.display = "";
+  if (r.path) $("#bkPath").value = r.path;
+  box.innerHTML = `<div class="card" style="padding:8px;margin:0;max-height:260px;overflow:auto">
+    <div class="row small" style="margin-bottom:6px"><b class="mono">${esc(r.path || "Laufwerke")}</b><div style="flex:1"></div>
+      ${r.path ? '<button class="sm" id="fsMk">+ Neuer Ordner</button>' : ""}</div>
+    ${r.parent !== null && r.parent !== undefined ? `<div><a href="#" data-p="${esc(r.parent)}">&#11014; ..</a></div>` : ""}
+    ${r.dirs.map(d => `<div><a href="#" data-p="${esc(d)}">&#128193; ${esc(d.split(/[\\/]/).filter(Boolean).pop() || d)}</a></div>`).join("") || '<div class="muted small">keine Unterordner</div>'}</div>`;
+  $$("#bkBrowser a[data-p]").forEach(a => a.onclick = (e) => { e.preventDefault(); browseDir(a.dataset.p); });
+  if ($("#fsMk")) $("#fsMk").onclick = async () => {
+    const n = prompt("Name des neuen Ordners:"); if (!n) return;
+    try { const x = await api("/api/fs/mkdir", { method: "POST", body: { parent: r.path, name: n } }); browseDir(x.path); } catch (e) { toast(e.message); }
+  };
+}
+async function pollBackup(force) {
+  clearTimeout(S.bkPoll);
+  let st; try { st = await api("/api/backups/job"); } catch (e) { return; }
+  if (st.state === "idle") { $("#bkJob").style.display = "none"; return; }
+  $("#bkJob").style.display = "";
+  $("#bkBar").style.width = (st.total ? 100 * st.done / st.total : 0) + "%";
+  $("#bkLog").textContent = st.log.join("\n"); $("#bkLog").scrollTop = 1e9;
+  $$("#bkSelected,#bkAll").forEach(b => b.disabled = st.state === "running");
+  if (st.state === "running") S.bkPoll = setTimeout(pollBackup, 1500);
+  else if (S._bkRunning || force) { S._bkRunning = false; const ok = st.results.filter(r => r.ok).length; toast(`Sicherung fertig: ${ok} von ${st.total} erfolgreich`, 5000); renderConfigs(); }
+  if (st.state === "running") S._bkRunning = true;
+}
+function showVersions(s) {
+  const box = $("#bkDetail"); box.style.display = "";
+  const q = (v, extra = "") => `location=${encodeURIComponent(v.location)}&switch=${encodeURIComponent(s.name)}&file=${encodeURIComponent(v.file)}${extra}`;
+  box.innerHTML = `<div class="card-head"><h3>${esc(s.name)} - gesicherte Konfigurationen</h3><span class="muted small">${s.versions.length} von ${S.bk.max_versions}</span>
+      <div style="flex:1"></div><button class="sm" onclick="$('#bkDetail').style.display='none'">Schliessen</button></div>
+    <div class="tablewrap"><table class="data"><thead><tr><th>Zeitpunkt</th><th>Benutzer</th><th>Typ</th><th>Groesse</th><th>Status</th><th>Speicherort</th><th></th></tr></thead><tbody>
+    ${s.versions.map((v, i) => `<tr><td><b>${esc(fmtDate(v.time))}</b><br><span class="mono small">${esc(v.file)}</span></td><td>${esc(v.user)}</td><td class="small">${esc(v.device_type)}</td>
+      <td class="right">${(v.size / 1024).toFixed(1)} KB</td><td>${v.changed === false ? '<span class="pill gray">unveraendert</span>' : v.changed ? '<span class="pill yellow">geaendert</span>' : '<span class="pill">erste</span>'}</td>
+      <td class="mono small">${esc(v.location)}</td>
+      <td class="nowrap"><button class="sm" data-v="view" data-i="${i}">Anzeigen</button>
+        ${i + 1 < s.versions.length ? `<button class="sm" data-v="diff" data-i="${i}">Vergleich mit Vorversion</button>` : ""}
+        <a class="btn sm" href="/api/backups/file?${q(v, "&download=1")}">Download</a>
+        ${can("backup_delete") ? `<button class="sm danger" data-v="del" data-i="${i}">Loeschen</button>` : ""}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  $$("#bkDetail button[data-v]").forEach(b => b.onclick = async () => {
+    const v = s.versions[+b.dataset.i];
+    if (b.dataset.v === "view") {
+      const r = await api("/api/backups/file?" + q(v));
+      showModal(`<h2>${esc(s.name)}</h2><p class="mono small">${esc(v.file)}</p><pre class="log" style="height:60vh;white-space:pre">${esc(r.text)}</pre>`);
+      $("#modal").style.maxWidth = "1100px";
+    } else if (b.dataset.v === "diff") {
+      const old = s.versions[+b.dataset.i + 1];
+      if (old.location !== v.location) { toast("Versionen liegen an verschiedenen Speicherorten"); return; }
+      const r = await api(`/api/backups/diff?location=${encodeURIComponent(v.location)}&switch=${encodeURIComponent(s.name)}&a=${encodeURIComponent(old.file)}&b=${encodeURIComponent(v.file)}`);
+      const html = r.diff ? r.diff.split("\n").map(l => {
+        const c = l.startsWith("+") && !l.startsWith("+++") ? "#2e7d32" : l.startsWith("-") && !l.startsWith("---") ? "#c0352b" : l.startsWith("@@") ? "#6fa8dc" : "";
+        return `<span style="${c ? "color:" + c : ""}">${esc(l)}</span>`;
+      }).join("\n") : "Keine Unterschiede.";
+      showModal(`<h2>Aenderungen ${esc(s.name)}</h2><p class="small"><span class="danger">- ${esc(fmtDate(old.time))}</span> &nbsp; <span class="ok">+ ${esc(fmtDate(v.time))}</span></p><pre class="log" style="height:60vh;white-space:pre">${html}</pre>`);
+      $("#modal").style.maxWidth = "1100px";
+    } else if (b.dataset.v === "del" && confirm(`Version ${v.file} loeschen?`)) {
+      await api("/api/backups/file", { method: "DELETE", body: { location: v.location, switch: s.name, file: v.file } });
+      toast("Geloescht"); await renderConfigs(); const s2 = S.bk.switches.find(x => x.id === s.id); if (s2 && s2.versions.length) showVersions(s2); else box.style.display = "none";
+    }
+  });
+  box.scrollIntoView({ behavior: "smooth" });
+}
+// Modalbreite beim Schliessen zuruecksetzen
+const _hideModal = hideModal;
+hideModal = function () { $("#modal").style.maxWidth = ""; _hideModal(); };
+
+// ------------------------------------------------------------------ Benutzerverwaltung
+async function loadUsers() {
+  const list = await api("/api/users");
+  sortableTable($("#userTable"), [
+    { key: "username", label: "Benutzer", render: u => `<b>${esc(u.username)}</b>${u.username === S.me.username ? ' <span class="pill">Sie</span>' : ""}` },
+    { key: "full_name", label: "Name" },
+    { key: "role_label", label: "Rolle", render: u => `<span class="pill ${u.role === "admin" ? "red" : u.role === "audit" ? "yellow" : ""}">${esc(u.role_label)}</span>` },
+    { key: "disabled", label: "Status", render: u => u.disabled ? '<span class="pill gray">gesperrt</span>' : '<span class="pill green">aktiv</span>' },
+    { key: "last_login", label: "Letzte Anmeldung", render: u => esc(fmtDate(u.last_login)) || '<span class="muted">nie</span>' },
+    { key: "created", label: "Angelegt", render: u => esc(fmtDate(u.created)) },
+    { key: "act", label: "", render: u => `<button class="sm" data-u="edit" data-n="${esc(u.username)}">Bearbeiten</button>` + (u.username !== S.me.username ? ` <button class="sm danger" data-u="del" data-n="${esc(u.username)}">Loeschen</button>` : "") },
+  ], list);
+  $$("#userTable button[data-u]").forEach(b => b.onclick = async () => {
+    const u = list.find(x => x.username === b.dataset.n);
+    if (b.dataset.u === "edit") userDialog(u);
+    else if (confirm(`Benutzer ${u.username} loeschen?`)) {
+      try { await api("/api/users/" + encodeURIComponent(u.username), { method: "DELETE" }); toast("Geloescht"); loadUsers(); } catch (e) { toast(e.message, 5000); }
+    }
+  });
+}
+function userDialog(u) {
+  const isNew = !u;
+  const roles = S.me.roles;
+  showModal(`<h2>${isNew ? "Benutzer anlegen" : "Benutzer " + esc(u.username)}</h2>
+    ${isNew ? '<div class="field"><label>Benutzername</label><input type="text" id="uName" style="width:100%" autocomplete="off"></div>' : ""}
+    <div class="field"><label>Name (optional)</label><input type="text" id="uFull" style="width:100%" value="${esc(u ? u.full_name : "")}"></div>
+    <div class="field"><label>Rolle</label><select id="uRole" style="width:100%">${Object.entries(roles).map(([k, v]) => `<option value="${k}" ${(u ? u.role : "user") === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>
+    <div class="field"><label>${isNew ? "Passwort" : "Neues Passwort (leer = unveraendert)"}</label><input type="password" id="uPw" style="width:100%" autocomplete="new-password"></div>
+    ${isNew ? "" : `<label class="chk"><input type="checkbox" id="uDis" ${u.disabled ? "checked" : ""}> Benutzer sperren</label>`}
+    <button class="primary" id="uSave">Speichern</button> <span id="uMsg" class="small"></span>`);
+  $("#uSave").onclick = async () => {
+    try {
+      if (isNew) await api("/api/users", { method: "POST", body: { username: $("#uName").value.trim(), full_name: $("#uFull").value, role: $("#uRole").value, password: $("#uPw").value } });
+      else await api("/api/users/" + encodeURIComponent(u.username), { method: "PUT", body: { full_name: $("#uFull").value, role: $("#uRole").value, password: $("#uPw").value, disabled: $("#uDis").checked } });
+      hideModal(); toast("Gespeichert"); loadUsers();
+    } catch (e) { $("#uMsg").innerHTML = `<span class="danger">${esc(e.message)}</span>`; }
+  };
+}
+$("#userAdd").onclick = () => userDialog(null);
+
+// ------------------------------------------------------------------ Protokoll
+const AUDIT_LABEL = { login: "Anmeldung", login_failed: "Anmeldung fehlgeschlagen", logout: "Abmeldung", setup: "Ersteinrichtung",
+  scan_started: "Scan gestartet", scan_cancelled: "Scan abgebrochen", scan_deleted: "Scan geloescht", scan_renamed: "Scan umbenannt",
+  scan_imported: "Scan importiert", settings_changed: "Einstellungen geaendert", plan_changed: "Umzugsplanung geaendert",
+  user_created: "Benutzer angelegt", user_changed: "Benutzer geaendert", user_deleted: "Benutzer geloescht",
+  password_changed: "Passwort geaendert", password_set_cli: "Passwort gesetzt (CLI)", config_backup_started: "Sicherung gestartet",
+  config_backup: "Konfiguration gesichert", config_backup_failed: "Sicherung fehlgeschlagen", config_downloaded: "Konfiguration heruntergeladen",
+  config_deleted: "Konfiguration geloescht", device_type_changed: "Geraetetyp geaendert", folder_created: "Ordner angelegt",
+  update_started: "Update gestartet", update_install: "Update wird installiert", report_downloaded: "Report heruntergeladen" };
+async function loadAudit() {
+  const rows = await api("/api/audit?limit=3000&q=" + encodeURIComponent($("#auditSearch").value.trim()));
+  S.auditRows = rows;
+  $("#auditCount").textContent = rows.length + " Eintraege";
+  sortableTable($("#auditTable"), [
+    { key: "time", label: "Zeitpunkt", render: r => esc(fmtDate(r.time)) + `<span class="muted small"> ${esc((r.time || "").slice(17, 19))}s</span>` },
+    { key: "user", label: "Benutzer", render: r => `<b>${esc(r.user)}</b>` },
+    { key: "action", label: "Aktion", render: r => `<span class="${/failed|deleted/.test(r.action) ? "danger" : ""}">${esc(AUDIT_LABEL[r.action] || r.action)}</span>` },
+    { key: "detail", label: "Details", render: r => `<span class="small">${esc(r.detail)}</span>` },
+    { key: "ip", label: "Von IP", cls: "mono" },
+  ], rows, { sortKey: null });
+}
+$("#auditReload").onclick = loadAudit;
+$("#auditSearch").oninput = debounce(loadAudit, 300);
+$("#auditCsv").onclick = (e) => {
+  e.preventDefault();
+  const rows = S.auditRows || [];
+  const csv = "\ufeffZeitpunkt;Benutzer;Aktion;Details;IP\n" + rows.map(r => [r.time, r.user, AUDIT_LABEL[r.action] || r.action, r.detail, r.ip]
+    .map(x => '"' + String(x || "").replace(/"/g, '""') + '"').join(";")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "NetzwerkScanner-Protokoll.csv"; a.click();
+};
+
+// ------------------------------------------------------------------ System & Update
+const MODE_LABEL = { windows: "Windows (installiert) - automatisches Update moeglich", linux: "Linux / Kali (installiert) - automatisches Update moeglich",
+  source: "Quellcode / manuell gestartet - Update per 'git pull' bzw. neuer Installation" };
+async function loadSystem() {
+  $("#sysVersion").textContent = S.me.version;
+  $("#sysMode").textContent = MODE_LABEL[S.me.install_mode] || S.me.install_mode;
+  const cfg = await api("/api/config");
+  $("#updRepo").value = (cfg.update || {}).repo || "";
+  $("#updToken").value = (cfg.update || {}).token || "";
+  S.cfg = S.cfg || cfg;
+}
+$("#updSave").onclick = async () => {
+  try {
+    const cfg = await api("/api/config");
+    cfg.update = { repo: $("#updRepo").value.trim(), token: $("#updToken").value };
+    S.cfg = await api("/api/config", { method: "POST", body: cfg });
+    toast("Gespeichert");
+  } catch (e) { toast(e.message, 5000); }
+};
+$("#updCheck").onclick = async () => {
+  $("#updMsg").textContent = "Pruefe GitHub ...";
+  try {
+    const r = await api("/api/update/check");
+    $("#sysLatest").innerHTML = `<b>${esc(r.latest)}</b> <span class="muted small">${esc(fmtDate(r.published))}</span> <a href="${esc(r.url)}" target="_blank" rel="noopener">GitHub</a>`;
+    $("#updNotes").textContent = r.notes || ""; $("#updNotesBox").style.display = r.notes ? "" : "none";
+    if (!r.update_available) { $("#updMsg").innerHTML = '<span class="ok">&#10003; Sie verwenden die neueste Version.</span>'; $("#updInstall").style.display = "none"; }
+    else if (!r.can_install) { $("#updMsg").innerHTML = `<span class="warn">Neue Version ${esc(r.latest)} verfuegbar - automatische Installation hier nicht moeglich (${esc(r.mode)}). Bitte neu installieren.</span>`; }
+    else { $("#updMsg").innerHTML = `<span class="warn">Neue Version <b>${esc(r.latest)}</b> verfuegbar (${esc(r.asset.name)}, ${(r.asset.size / 1048576).toFixed(1)} MB).</span>`; $("#updInstall").style.display = ""; }
+  } catch (e) { $("#updMsg").innerHTML = `<span class="danger">${esc(e.message)}</span>`; }
+};
+$("#updInstall").onclick = async () => {
+  if (!confirm("Update jetzt installieren? Der Dienst wird dabei neu gestartet (ca. 1 Minute). Laufende Scans werden abgebrochen.")) return;
+  try { await api("/api/update/install", { method: "POST" }); } catch (e) { $("#updMsg").innerHTML = `<span class="danger">${esc(e.message)}</span>`; return; }
+  $("#updInstall").disabled = true;
+  const from = S.me.version, t0 = Date.now();
+  const tick = async () => {
+    let st = null;
+    try { st = await api("/api/update/state"); } catch (e) { /* Dienst startet neu */ }
+    if (st && st.version !== from) { $("#updMsg").innerHTML = `<span class="ok">&#10003; Update auf ${esc(st.version)} installiert.</span>`; toast("Update installiert - Seite wird neu geladen"); setTimeout(() => location.reload(), 2000); return; }
+    if (st && st.state === "error") { $("#updMsg").innerHTML = `<span class="danger">${esc(st.message)}</span>`; $("#updInstall").disabled = false; return; }
+    $("#updMsg").innerHTML = `<span class="warn">${esc(st ? st.message : "Dienst wird neu gestartet ...")}</span>`;
+    if (Date.now() - t0 > 5 * 60000) { $("#updMsg").innerHTML = '<span class="danger">Zeitueberschreitung - bitte Protokoll pruefen (Datenverzeichnis\\update\\install.log).</span>'; return; }
+    setTimeout(tick, 2500);
+  };
+  tick();
+};
+
 // ------------------------------------------------------------------ Start
 (async function init() {
+  S.me = await api("/api/me");
+  applyPerms();
   await loadScans();
   let t = location.hash.slice(1);
   if (!t) { try { t = localStorage.getItem("ns-tab"); } catch (e) { /* egal */ } }
