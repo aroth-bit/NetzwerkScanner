@@ -86,6 +86,16 @@ Das Dashboard läuft standardmäßig auf **Port 8765** (`http://<server>:8765/`)
 
 ## Installation direkt von GitHub
 
+### Online-Installer (am einfachsten)
+
+**[NetzwerkScanner-Installer.exe herunterladen](https://github.com/aroth-bit/NetzwerkScanner/releases/latest/download/NetzwerkScanner-Installer.exe)** (ca. 20 KB) und auf dem Windows Server per Doppelklick starten. Der Installer fordert Administratorrechte an, lädt die jeweils neueste Version von GitHub, prüft die SHA-256-Prüfsumme und installiert sie (Dienst, Firewall-Regel, Startmenü, erster Administrator). Bei einer vorhandenen Installation wird aktualisiert.
+
+Optionen (Eingabeaufforderung): `NetzwerkScanner-Installer.exe -Port 9000`, `-NoService`, `-NoFirewall`, `-Tag v1.1.1` (bestimmte Version) oder `-DownloadOnly -OutDir D:\Pakete` (nur das ZIP-Paket herunterladen, z. B. für Server ohne Internet).
+
+Da die Datei nicht digital signiert ist, zeigt Windows SmartScreen beim ersten Start ggf. eine Warnung („Weitere Informationen“ → „Trotzdem ausführen“).
+
+### Per Befehl
+
 Die Installationspakete werden bei jeder neuen Version automatisch von GitHub Actions gebaut und unter [Releases](https://github.com/aroth-bit/NetzwerkScanner/releases) veröffentlicht. Die folgenden Befehle laden immer die neueste Version, prüfen die SHA-256-Prüfsumme und installieren.
 
 **Windows Server** (PowerShell *als Administrator*):
